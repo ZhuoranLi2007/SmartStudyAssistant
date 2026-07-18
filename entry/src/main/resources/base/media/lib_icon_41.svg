@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg height="16px" version="1.1" viewbox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<title>mdpi/ic_parabar_story_loading</title>
+<g fill="none" fill-rule="evenodd" id="ic_parabar_story_loading" stroke="none" stroke-width="1">
+<g id="Progress-Indicators/dark/circle/normal" transform="translate(-2.000000, -2.000000)">
+<g id="ic/24x24/loading/dark" transform="translate(0.515625, 0.515625)">
+<rect height="18.962963" id="Rectangle" width="18.962963" x="0" y="0"></rect>
+<g fill="#000" id="Group" transform="translate(1.580247, 1.975309)">
+<circle cx="7.90123457" cy="0.592592593" id="Oval" opacity="0.400000006" r="1"></circle>
+<circle cx="11.4567901" cy="1.58024691" id="Oval-Copy" opacity="0.200000003" r="1"></circle>
+<circle cx="14.0246914" cy="3.95061728" id="Oval-Copy-2" opacity="0.200000003" r="1"></circle>
+<circle cx="15.0123457" cy="7.50617284" id="Oval-Copy-3" opacity="0.200000003" r="1"></circle>
+<circle cx="14.0246914" cy="10.8641975" id="Oval-Copy-4" opacity="0.400000006" r="1"></circle>
+<circle cx="1.97530864" cy="3.95061728" id="Oval-Copy-10" opacity="0.800000012" r="1"></circle>
+<circle cx="4.54320988" cy="1.58024691" id="Oval-Copy-11" opacity="0.600000024" r="1"></circle>
+<circle cx="11.4567901" cy="13.6296296" id="Oval-Copy-5" opacity="0.600000024" r="1"></circle>
+<circle cx="8.09876543" cy="14.4197531" id="Oval-Copy-6" opacity="0.800000012" r="1"></circle>
+<circle cx="4.54320988" cy="13.6296296" id="Oval-Copy-7" opacity="0.900000036" r="1.18518519"></circle>
+<circle cx="1.08641975" cy="7.60493827" id="Oval-Copy-9" opacity="0.900000036" r="1.08641975"></circle>
+<circle cx="2.07407407" cy="10.962963" id="Oval-Copy-8" r="1.28395062"></circle>
+</g>
+</g>
+</g>
+</g>
+</svg>
