@@ -1,0 +1,1 @@
+"""SmartStudyAssistant FastAPI backend."""

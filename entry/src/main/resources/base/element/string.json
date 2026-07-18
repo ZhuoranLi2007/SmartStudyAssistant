@@ -7,7 +7,10 @@
     "value" : "description"
   }, {
     "name" : "EntryAbility_label",
-    "value" : "label"
+    "value" : "智学规划助手"
+  }, {
+    "name" : "microphone_reason",
+    "value" : "用于语音咨询、语音识别和学习内容朗读"
   }, {
     "name" : "defaultForm_label",
     "value" : "form_label"

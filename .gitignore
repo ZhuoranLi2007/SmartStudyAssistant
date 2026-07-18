@@ -10,3 +10,11 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+/.venv
+__pycache__/
+.pytest_cache/
+*.pyc
+server/.env
+server/*.db
+server/logs/
+*.log
