@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "SmartStudyAssistant API"
     environment: str = "development"
-    database_url: str = "sqlite+aiosqlite:///./server/smartstudy.db"
+    database_url: str = "mysql+asyncmy://smartstudy:change-me@127.0.0.1:3306/smartstudy?charset=utf8mb4"
     jwt_secret: str = "change-this-secret-before-production"
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 1440
