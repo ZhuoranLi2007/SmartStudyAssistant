@@ -1,76 +1,70 @@
-import { AppRoutes, StudentRouteParam } from '../common/AppRoutes';
+import { AppRoutes } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
+import { AIRecommendCard } from '../components/home/AIRecommendCard';
+import { CourseHorizontalList } from '../components/home/CourseHorizontalList';
+import { EducationEntranceGrid } from '../components/home/EducationEntranceGrid';
+import { HomeBannerSwiper } from '../components/home/HomeBannerSwiper';
+import { HomeHeader } from '../components/home/HomeHeader';
+import { HomeLearningOverviewCard } from '../components/home/HomeLearningOverviewCard';
+import { LatestCourseSection } from '../components/home/LatestCourseSection';
+import { PaperTrainingSection } from '../components/home/PaperTrainingSection';
+import { TodayTaskCard } from '../components/home/TodayTaskCard';
 import { MainTabBar } from '../components/MainTabBar';
+import { MockHomeData } from '../data/MockHomeData';
+import { HomeData, HomeDataSource, HomeLoadResult } from '../model/HomeModels';
+import { HomeService } from '../service/HomeService';
 
 @Component
 export struct HomePage {
-  @Consume('appPathStack') appPathStack: NavPathStack;
-  @StorageLink(AppStorageKeys.USERNAME) username: string = '家长';
-  @StorageLink(AppStorageKeys.USER_ROLE) role: string = 'parent';
+  @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
+  @State homeData: HomeData = MockHomeData.getHomeData();
+  @State dataSource: HomeDataSource = HomeDataSource.MOCK;
+  @State sourceMessage: string = '当前部分首页内容为演示数据';
+  @State isLoading: boolean = false;
 
-  @Builder
-  private featureCard(title: string, description: string, routeName: string, image: Resource) {
-    Row({ space: 14 }) {
-      Image(image).width(72).height(72).borderRadius(16).objectFit(ImageFit.Cover)
-      Column({ space: 7 }) {
-        Text(title).fontSize(19).fontWeight(FontWeight.Bold).fontColor('#101828')
-        Text(description).fontSize(13).fontColor('#667085').maxLines(2)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      Text('›').fontSize(28).fontColor('#98A2B3')
+  aboutToAppear(): void { void this.loadHomeData(); }
+
+  private async loadHomeData(): Promise<void> {
+    if (this.isLoading) return;
+    this.isLoading = true;
+    try {
+      const result: HomeLoadResult = await HomeService.getHomeData(this.studentProfileId);
+      this.homeData = result.data;
+      this.studentProfileId = result.data.studentProfileId;
+      this.dataSource = result.source;
+      this.sourceMessage = result.message;
+    } catch (error) {
+      console.error(`首页数据加载失败: ${JSON.stringify(error)}`);
+      this.homeData = MockHomeData.getHomeData();
+      this.dataSource = HomeDataSource.MOCK;
+      this.sourceMessage = '网络服务暂不可用，已展示本地演示内容';
+    } finally {
+      this.isLoading = false;
     }
-    .width('100%')
-    .padding(16)
-    .borderRadius(18)
-    .backgroundColor(Color.White)
-    .shadow({ radius: 12, color: '#14000000', offsetY: 4 })
-    .onClick(() => {
-      if (routeName === AppRoutes.AI_ASSISTANT) {
-        this.appPathStack.pushPathByName(routeName, new StudentRouteParam());
-      } else {
-        this.appPathStack.pushPathByName(routeName, null);
-      }
-    })
   }
 
   build() {
     NavDestination() {
       Column() {
         Scroll() {
-          Column({ space: 16 }) {
-            Row() {
-              Column({ space: 5 }) {
-                Text(`你好，${this.username || '家长'}`).fontSize(26).fontWeight(FontWeight.Bold)
-                Text(this.role === 'student' ? '今天也要完成学习任务哦' : '为孩子找到更合适的学习路径').fontSize(14).fontColor('#667085')
-              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-              Image($r('app.media.avatar')).width(52).height(52).borderRadius(26)
-            }.width('100%')
-            Row() {
-              Column({ space: 7 }) {
-                Text('小明 · 六年级').fontSize(20).fontWeight(FontWeight.Bold).fontColor(Color.White)
-                Text('数学 75分 · 薄弱点：应用题、百分数').fontSize(13).fontColor('#E8EEFF')
-                Text('本周计划 2 项，已完成 0 项').fontSize(13).fontColor('#E8EEFF')
-              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-              Image($r('app.media.realImageGen_education_3')).width(92).height(92).borderRadius(18).objectFit(ImageFit.Cover)
+          Column({ space: 15 }) {
+            HomeHeader()
+            HomeBannerSwiper({ banners: this.homeData.banners })
+            EducationEntranceGrid()
+            HomeLearningOverviewCard({ overview: this.homeData.overview })
+            AIRecommendCard({ course: this.homeData.recommendedCourse })
+            CourseHorizontalList({ courses: this.homeData.popularCourses })
+            LatestCourseSection({ courses: this.homeData.latestCourses })
+            PaperTrainingSection({ papers: this.homeData.recommendedPapers })
+            TodayTaskCard({ task: this.homeData.todayTask })
+            if (this.dataSource === HomeDataSource.MOCK) {
+              Text(this.sourceMessage || '当前部分首页内容为演示数据')
+                .fontSize(11).fontColor('#98A2B3').lineHeight(18).width('100%')
             }
-            .padding(18)
-            .borderRadius(22)
-            .linearGradient({ angle: 120, colors: [['#2F6BFF', 0], ['#7A5AF8', 1]] })
-            this.featureCard('学生档案', '记录成绩、薄弱点和学习目标', AppRoutes.STUDENT_PROFILE, $r('app.media.realImageGen_education_1'))
-            this.featureCard('AI 课程咨询', '通过文字或语音获得可解释推荐', AppRoutes.AI_ASSISTANT, $r('app.media.realImageGen_education_2'))
-            this.featureCard('分层课程', '浏览基础、提升和拔高课程', AppRoutes.COURSES, $r('app.media.realImageGen_education_4'))
-            this.featureCard('试卷资源', '按知识点训练，也可上传图片 OCR', AppRoutes.PAPERS, $r('app.media.realImageGen_education_5'))
-          }
-          .padding({ left: 20, right: 20, top: 24, bottom: 24 })
-        }
-        .layoutWeight(1)
+          }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%')
+        }.layoutWeight(1).width('100%')
         MainTabBar({ activeRoute: AppRoutes.HOME })
-      }
-      .width('100%')
-      .height('100%')
-      .backgroundColor('#F8FAFC')
-    }
-    .hideTitleBar(true)
+      }.width('100%').height('100%').backgroundColor('#F2F4F7')
+    }.hideTitleBar(true)
   }
 }

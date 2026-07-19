@@ -5,9 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
-from server.models import StudentProfile, StudentSubjectProfile, User
-from server.schemas import StudentCreate, StudentUpdate
+from server.models import StudentProfile, StudentSubjectProfile, User, WrongQuestion
+from server.schemas import StudentCreate, StudentUpdate, WrongQuestionMasteryUpdate
 from server.services.access_service import ensure_student_access, get_user_family_id
+from server.services.learning_service import learning_report, wrong_question_list
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
@@ -75,3 +76,30 @@ async def update_student(student_id: int, payload: StudentUpdate, db: AsyncSessi
         subject.weak_points = payload.weak_points
     await db.commit()
     return ok(await serialize_student(db, profile), "学生档案已更新")
+
+
+@router.get("/{student_id}/wrong-questions")
+async def get_wrong_questions(
+    student_id: int, subject: str | None = None,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    return ok(await wrong_question_list(db, user, student_id, subject))
+
+
+@router.put("/{student_id}/wrong-questions/{wrong_question_id}/mastered")
+async def update_wrong_question(
+    student_id: int, wrong_question_id: int, payload: WrongQuestionMasteryUpdate,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    await ensure_student_access(db, user, student_id)
+    row = await db.get(WrongQuestion, wrong_question_id)
+    if row is None or row.student_profile_id != student_id:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    row.mastered = payload.mastered
+    await db.commit()
+    return ok({"id": row.id, "mastered": row.mastered}, "错题状态已更新")
+
+
+@router.get("/{student_id}/learning-report")
+async def get_learning_report(student_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    return ok(await learning_report(db, user, student_id))

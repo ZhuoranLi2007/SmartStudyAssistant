@@ -90,6 +90,7 @@ export interface RecommendationResult {
 export interface LoginResult {
   accessToken: string;
   user: UserInfo;
+  studentProfileId: number;
 }
 
 export interface ApiResponse<T> {

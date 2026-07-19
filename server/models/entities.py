@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.database.session import Base
@@ -76,6 +77,8 @@ class Course(TimestampMixin, Base):
     suitable_for: Mapped[str] = mapped_column(Text)
     knowledge_points: Mapped[list[str]] = mapped_column(JSON, default=list)
     description: Mapped[str] = mapped_column(Text)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("99.00"))
+    total_lessons: Mapped[int] = mapped_column(Integer, default=12)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -105,6 +108,10 @@ class StudyTask(TimestampMixin, Base):
     subject: Mapped[str] = mapped_column(String(20))
     difficulty: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="未开始")
+    scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=40)
+    knowledge_point: Mapped[str] = mapped_column(String(100), default="")
+    source_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class ChatSession(TimestampMixin, Base):
@@ -124,6 +131,9 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
     intent: Mapped[str] = mapped_column(String(50), default="GENERAL_CHAT")
+    client_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    tool_calls_json: Mapped[list] = mapped_column(JSON, default=list)
+    model_metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
@@ -149,4 +159,126 @@ class ToolCallLog(Base):
     success: Mapped[bool] = mapped_column(Boolean)
     duration_ms: Mapped[int] = mapped_column(Integer)
     error_summary: Mapped[str] = mapped_column(String(255), default="")
+    request_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    error_code: Mapped[str] = mapped_column(String(50), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class CourseOrder(TimestampMixin, Base):
+    __tablename__ = "course_orders"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_no: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id"), index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CourseEnrollment(TimestampMixin, Base):
+    __tablename__ = "course_enrollments"
+    __table_args__ = (UniqueConstraint("student_profile_id", "course_id", name="uq_student_course"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("course_orders.id"), unique=True)
+    completed_lessons: Mapped[int] = mapped_column(Integer, default=0)
+    total_lessons: Mapped[int] = mapped_column(Integer, default=12)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="LEARNING")
+    next_lesson: Mapped[str] = mapped_column(String(150), default="第一课")
+
+
+class PaperQuestion(TimestampMixin, Base):
+    __tablename__ = "paper_questions"
+    __table_args__ = (UniqueConstraint("paper_id", "sequence", name="uq_paper_question_sequence"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    stem: Mapped[str] = mapped_column(Text)
+    options_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    correct_index: Mapped[int] = mapped_column(Integer)
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    knowledge_point: Mapped[str] = mapped_column(String(100), default="")
+
+
+class PracticeAttempt(TimestampMixin, Base):
+    __tablename__ = "practice_attempts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    score: Mapped[float] = mapped_column(Float)
+    correct_count: Mapped[int] = mapped_column(Integer)
+    question_count: Mapped[int] = mapped_column(Integer)
+    knowledge_stats_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class PracticeAnswer(Base):
+    __tablename__ = "practice_answers"
+    __table_args__ = (UniqueConstraint("attempt_id", "question_id", name="uq_attempt_question"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_id: Mapped[int] = mapped_column(ForeignKey("practice_attempts.id", ondelete="CASCADE"), index=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("paper_questions.id"), index=True)
+    selected_index: Mapped[int] = mapped_column(Integer)
+    correct: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class WrongQuestion(TimestampMixin, Base):
+    __tablename__ = "wrong_questions"
+    __table_args__ = (UniqueConstraint("student_profile_id", "question_id", name="uq_student_wrong_question"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), index=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("paper_questions.id"), index=True)
+    subject: Mapped[str] = mapped_column(String(20), index=True)
+    knowledge_point: Mapped[str] = mapped_column(String(100), index=True)
+    question_text: Mapped[str] = mapped_column(Text)
+    user_answer: Mapped[str] = mapped_column(Text)
+    correct_answer: Mapped[str] = mapped_column(Text)
+    explanation: Mapped[str] = mapped_column(Text, default="")
+    mastered: Mapped[bool] = mapped_column(Boolean, default=False)
+    wrong_count: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class RagDocument(TimestampMixin, Base):
+    __tablename__ = "rag_documents"
+    __table_args__ = (UniqueConstraint("source_type", "source_id", "content_hash", name="uq_rag_document_source_hash"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[str] = mapped_column(String(100), index=True)
+    source_type: Mapped[str] = mapped_column(String(30), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class RagChunk(Base):
+    __tablename__ = "rag_chunks"
+    __table_args__ = (UniqueConstraint("document_id", "chunk_index", name="uq_rag_document_chunk"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("rag_documents.id", ondelete="CASCADE"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AIRequest(TimestampMixin, Base):
+    __tablename__ = "ai_requests"
+    __table_args__ = (UniqueConstraint("session_id", "client_message_id", name="uq_ai_session_client_message"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    client_message_id: Mapped[str] = mapped_column(String(64))
+    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="processing")
+    intent: Mapped[str] = mapped_column(String(50), default="UNKNOWN")
+    response_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str] = mapped_column(String(50), default="")

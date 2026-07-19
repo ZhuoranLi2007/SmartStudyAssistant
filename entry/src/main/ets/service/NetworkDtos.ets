@@ -12,12 +12,12 @@ export class RegisterRequest {
 
 export class ChatRequest {
   session_id: string | null = null;
-  student_profile_id: number = 1;
+  student_profile_id: number = 0;
   message: string = '';
 }
 
 export class RecommendationRequest {
-  student_profile_id: number = 1;
+  student_profile_id: number = 0;
   subject: string | null = null;
 }
 
@@ -27,7 +27,7 @@ export class PaperAnalyzeRequest {
 }
 
 export class StudyTaskRequest {
-  student_profile_id: number = 1;
+  student_profile_id: number = 0;
   task_type: string = '课程';
   target_id: number = 1;
 }

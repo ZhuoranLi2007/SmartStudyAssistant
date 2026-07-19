@@ -14,7 +14,7 @@ struct Index {
     AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, 0);
     AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, '');
     AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, 'parent');
-    AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, 1);
+    AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, 0);
     void this.restoreSession();
   }
 

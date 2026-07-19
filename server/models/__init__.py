@@ -1,19 +1,30 @@
 from .entities import (
+    AIRequest,
     ChatMessage,
     ChatSession,
     Course,
+    CourseEnrollment,
+    CourseOrder,
     Family,
     FamilyMember,
     Paper,
+    PaperQuestion,
+    PracticeAnswer,
+    PracticeAttempt,
+    RagChunk,
+    RagDocument,
     RecommendationRecord,
     StudentProfile,
     StudentSubjectProfile,
     StudyTask,
     ToolCallLog,
     User,
+    WrongQuestion,
 )
 
 __all__ = [
     "User", "Family", "FamilyMember", "StudentProfile", "StudentSubjectProfile", "Course", "Paper",
-    "StudyTask", "ChatSession", "ChatMessage", "RecommendationRecord", "ToolCallLog",
+    "StudyTask", "ChatSession", "ChatMessage", "RecommendationRecord", "ToolCallLog", "CourseOrder",
+    "CourseEnrollment", "PaperQuestion", "PracticeAttempt", "PracticeAnswer", "WrongQuestion",
+    "RagDocument", "RagChunk", "AIRequest",
 ]

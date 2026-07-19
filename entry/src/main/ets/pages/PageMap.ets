@@ -1,4 +1,4 @@
-import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
+import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, OrderRouteParam, PlatformInfoRouteParam } from '../common/AppRoutes';
 import { AiAssistantPage } from './AiAssistantPage';
 import { CourseDetailPage } from './CourseDetailPage';
 import { CourseRecommendationPage } from './CourseRecommendationPage';
@@ -10,6 +10,33 @@ import { ProfilePage } from './ProfilePage';
 import { RegisterPage } from './RegisterPage';
 import { StudentProfilePage } from './StudentProfilePage';
 import { StudyPlanPage } from './StudyPlanPage';
+import { CustomerChatPage } from './CustomerChatPage';
+import { CustomerServicePage } from './CustomerServicePage';
+import { FeedbackPage } from './FeedbackPage';
+import { LearningReportPage } from './LearningReportPage';
+import { MyCoursesPage } from './MyCoursesPage';
+import { MyFavoritesPage } from './MyFavoritesPage';
+import { MyOrdersPage } from './MyOrdersPage';
+import { PlatformInfoPage } from './PlatformInfoPage';
+import { SettingsPage } from './SettingsPage';
+import { WrongQuestionsPage } from './WrongQuestionsPage';
+import { OnlinePracticePage } from './OnlinePracticePage';
+import { OrderDetailPage } from './OrderDetailPage';
+
+function orderFilterFromParam(param: Object): string {
+  if (param instanceof OrderRouteParam) return param.status;
+  return 'ALL';
+}
+
+function infoTypeFromParam(param: Object): string {
+  if (param instanceof PlatformInfoRouteParam) return param.type;
+  return 'ABOUT';
+}
+
+function paperIdFromPracticeParam(param: Object): number {
+  if (param instanceof OnlinePracticeRouteParam) return param.paperId;
+  return 0;
+}
 
 @Builder
 export function PageMap(name: string, param: Object) {
@@ -35,5 +62,29 @@ export function PageMap(name: string, param: Object) {
     StudyPlanPage()
   } else if (name === AppRoutes.PROFILE) {
     ProfilePage()
+  } else if (name === AppRoutes.MY_COURSES) {
+    MyCoursesPage()
+  } else if (name === AppRoutes.MY_ORDERS) {
+    MyOrdersPage({ initialFilter: orderFilterFromParam(param) })
+  } else if (name === AppRoutes.MY_FAVORITES) {
+    MyFavoritesPage()
+  } else if (name === AppRoutes.CUSTOMER_SERVICE) {
+    CustomerServicePage()
+  } else if (name === AppRoutes.SETTINGS) {
+    SettingsPage()
+  } else if (name === AppRoutes.WRONG_QUESTIONS) {
+    WrongQuestionsPage()
+  } else if (name === AppRoutes.LEARNING_REPORT) {
+    LearningReportPage()
+  } else if (name === AppRoutes.CUSTOMER_CHAT) {
+    CustomerChatPage()
+  } else if (name === AppRoutes.FEEDBACK) {
+    FeedbackPage()
+  } else if (name === AppRoutes.PLATFORM_INFO) {
+    PlatformInfoPage({ infoType: infoTypeFromParam(param) })
+  } else if (name === AppRoutes.ONLINE_PRACTICE) {
+    OnlinePracticePage({ paperId: paperIdFromPracticeParam(param) })
+  } else if (name === AppRoutes.ORDER_DETAIL) {
+    OrderDetailPage({ orderId: (param as IdRouteParam).id })
   }
 }

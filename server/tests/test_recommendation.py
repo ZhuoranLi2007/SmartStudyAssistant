@@ -5,7 +5,10 @@ from server.services.recommendation_service import calculate_level
 
 @pytest.mark.parametrize(
     ("score", "expected"),
-    [(59, "基础巩固型"), (60, "中等提升型"), (84, "中等提升型"), (85, "拔高拓展型")],
+    [
+        (59, "基础巩固型"), (60, "基础巩固型"), (69, "基础巩固型"),
+        (70, "中等提升型"), (89, "中等提升型"), (90, "拔高拓展型"),
+    ],
 )
 def test_score_boundaries(score, expected):
     level, _rules = calculate_level(score, ["应用题"], "提高成绩")

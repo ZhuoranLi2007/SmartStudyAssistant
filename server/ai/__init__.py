@@ -1,3 +1,3 @@
-from .orchestrator import ChatOrchestrator
+from .orchestrator import AIOrchestrator, ChatOrchestrator
 
-__all__ = ["ChatOrchestrator"]
+__all__ = ["AIOrchestrator", "ChatOrchestrator"]

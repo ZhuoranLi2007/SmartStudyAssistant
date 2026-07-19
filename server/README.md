@@ -1,6 +1,6 @@
 # FastAPI 后端
 
-后端采用 Router → Service → Repository/SQLAlchemy → AI Orchestrator → Tool Registry 的分层思路。运行环境默认使用MySQL 8.x，自动化测试使用独立SQLite数据库。默认 `AI_PROVIDER=mock`，模拟模型只负责把结构化工具结果组织成自然语言，不替代规则和数据库查询。
+后端采用 Router → Service/SQLAlchemy → AI Orchestrator → Tool Registry → RAG/Provider 的分层思路。运行环境使用 MySQL 8.x，自动化测试使用独立 SQLite。配置真实 DeepSeek Key 后可调用 `deepseek-v4-flash`；无 Key 时按配置安全降级到 Mock，规则和数据库查询不受影响。完整 AI 说明见 `server/README_AI.md`。
 
 主要目录：
 
@@ -18,7 +18,7 @@ tests/      API与规则测试
 测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest server\tests -q
+python -m pytest -q
 ```
 
 MySQL启动：

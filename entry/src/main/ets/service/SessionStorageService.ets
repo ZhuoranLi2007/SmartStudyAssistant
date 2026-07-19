@@ -6,7 +6,7 @@ export class SessionSnapshot {
   userId: number = 0;
   username: string = '';
   role: string = 'parent';
-  studentProfileId: number = 1;
+  studentProfileId: number = 0;
 }
 
 export class SessionStorageService {
@@ -29,7 +29,7 @@ export class SessionStorageService {
     snapshot.userId = await store.get('userId', 0) as number;
     snapshot.username = await store.get('username', '') as string;
     snapshot.role = await store.get('role', 'parent') as string;
-    snapshot.studentProfileId = await store.get('studentProfileId', 1) as number;
+    snapshot.studentProfileId = await store.get('studentProfileId', 0) as number;
     return snapshot;
   }
 

@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class RegisterRequest(BaseModel):
@@ -69,6 +69,46 @@ class ChatRequest(BaseModel):
         if not value:
             raise ValueError("message cannot be blank")
         return value
+
+
+class AIChatRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    session_id: str | None = Field(default=None, validation_alias=AliasChoices("sessionId", "session_id"))
+    user_id: int | None = Field(default=None, validation_alias=AliasChoices("userId", "user_id"))
+    student_profile_id: int = Field(validation_alias=AliasChoices("studentId", "studentProfileId", "student_profile_id"))
+    client_message_id: str | None = Field(default=None, validation_alias=AliasChoices("clientMessageId", "client_message_id"))
+    message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def ai_message_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("message cannot be blank")
+        return value
+
+
+class OrderCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    student_profile_id: int = Field(validation_alias=AliasChoices("studentProfileId", "student_profile_id"))
+    course_id: int = Field(validation_alias=AliasChoices("courseId", "course_id"))
+
+
+class PracticeAnswerInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    question_id: int = Field(validation_alias=AliasChoices("questionId", "question_id"))
+    selected_index: int = Field(ge=0, validation_alias=AliasChoices("selectedIndex", "selected_index"))
+
+
+class PracticeAttemptCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    student_profile_id: int = Field(validation_alias=AliasChoices("studentProfileId", "student_profile_id"))
+    answers: list[PracticeAnswerInput] = Field(min_length=1, max_length=100)
+
+
+class WrongQuestionMasteryUpdate(BaseModel):
+    mastered: bool = True
 
 
 class ApiEnvelope(BaseModel):
