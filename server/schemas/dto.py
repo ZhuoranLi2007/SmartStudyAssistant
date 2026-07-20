@@ -25,8 +25,8 @@ class BindStudentRequest(BaseModel):
 
 class StudentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=50)
-    grade: Literal["五年级", "六年级"]
-    subject: Literal["数学", "英语"]
+    grade: Literal["一年级", "二年级", "三年级", "四年级", "五年级", "六年级"]
+    subject: Literal["语文", "数学", "英语"]
     recent_score: float = Field(ge=0, le=100)
     weak_points: list[str] = Field(default_factory=list, max_length=10)
     learning_goal: str = Field(min_length=1, max_length=100)
@@ -49,7 +49,7 @@ class PaperAnalyzeRequest(BaseModel):
 
 class StudyTaskCreate(BaseModel):
     student_profile_id: int
-    task_type: Literal["课程", "试卷"]
+    task_type: Literal["课程", "试卷", "错题"]
     target_id: int
 
 
@@ -109,6 +109,11 @@ class PracticeAttemptCreate(BaseModel):
 
 class WrongQuestionMasteryUpdate(BaseModel):
     mastered: bool = True
+
+
+class WrongQuestionTrainingSubmit(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    selected_index: int = Field(ge=0, validation_alias=AliasChoices("selectedIndex", "selected_index"))
 
 
 class ApiEnvelope(BaseModel):

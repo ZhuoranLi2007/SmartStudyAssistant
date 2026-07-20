@@ -7,12 +7,15 @@ import { MockDataService } from '../service/MockDataService';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { PracticeAttemptResult, PracticeLoadResult, PracticeQuestionResult } from '../model/AiModels';
 import { PracticeService } from '../service/PracticeService';
+import { StudyPlanService } from '../service/StudyPlanService';
+import { TaskStatus } from '../model/DomainModels';
 
 @Component
 export struct OnlinePracticePage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @Prop paperId: number = 0;
+  @Prop taskId: number = 0;
   @State paperName: string = '在线答题';
   @State questions: PracticeQuestion[] = [];
   @State currentIndex: number = 0;
@@ -103,6 +106,7 @@ export struct OnlinePracticePage {
         this.questions = updated;
         this.score = Math.round(result.score);
         this.submitted = true;
+        await this.completePlanTask();
         return;
       } catch (error) {
         this.liveData = false;
@@ -118,6 +122,18 @@ export struct OnlinePracticePage {
     }
     this.score = this.questions.length > 0 ? Math.round(correctCount * 100 / this.questions.length) : 0;
     this.submitted = true;
+    await this.completePlanTask();
+  }
+
+  private async completePlanTask(): Promise<void> {
+    if (this.taskId <= 0) return;
+    try {
+      await StudyPlanService.updateStatus(this.taskId, TaskStatus.COMPLETED);
+      promptAction.showToast({ message: '试卷任务已同步完成' });
+    } catch (error) {
+      console.warn(`试卷任务状态同步失败: ${JSON.stringify(error)}`);
+      promptAction.showToast({ message: '答题已完成，计划状态稍后可重试同步' });
+    }
   }
 
   private answerText(question: PracticeQuestion, index: number): string {

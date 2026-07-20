@@ -20,6 +20,7 @@ export class ChatViewModel {
   static createMessage(role: ChatRole, content: string, clientMessageId: string = ''): ChatMessage {
     return {
       id: `${role}_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      revision: 0,
       role: role,
       content: content,
       createdAt: Date.now(),

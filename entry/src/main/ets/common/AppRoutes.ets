@@ -22,6 +22,7 @@ export class AppRoutes {
   static readonly PLATFORM_INFO: string = 'PlatformInfoPage';
   static readonly ONLINE_PRACTICE: string = 'OnlinePracticePage';
   static readonly ORDER_DETAIL: string = 'OrderDetailPage';
+  static readonly WRONG_QUESTION_TRAINING: string = 'WrongQuestionTrainingPage';
 }
 
 export class IdRouteParam {
@@ -43,4 +44,10 @@ export class PlatformInfoRouteParam {
 
 export class OnlinePracticeRouteParam {
   paperId: number = 0;
+  taskId: number = 0;
+}
+
+export class WrongQuestionTrainingRouteParam {
+  wrongQuestionId: number = 0;
+  taskId: number = 0;
 }

@@ -31,6 +31,17 @@ export class MarkdownParser {
     return '';
   }
 
+  private static headingLevel(line: string): number {
+    if (line.startsWith('### ')) return 3;
+    if (line.startsWith('## ')) return 2;
+    if (line.startsWith('# ')) return 1;
+    return 0;
+  }
+
+  private static headingContent(line: string, level: number): string {
+    return line.substring(level + 1).trim();
+  }
+
   static parse(markdown: string): MarkdownBlock[] {
     const lines: string[] = MarkdownParser.cleanText(markdown).split('\r').join('').split('\n');
     const blocks: MarkdownBlock[] = [];
@@ -40,13 +51,18 @@ export class MarkdownParser {
 
     const flushParagraph = (): void => {
       if (paragraph.length > 0) {
-        blocks.push({ type: MarkdownBlockType.PARAGRAPH, content: paragraph.join('\n'), items: [] });
+        blocks.push({
+          type: MarkdownBlockType.PARAGRAPH,
+          content: paragraph.join('\n'),
+          items: [],
+          headingLevel: 0
+        });
         paragraph = [];
       }
     };
     const flushList = (): void => {
       if (listItems.length > 0) {
-        blocks.push({ type: listType, content: '', items: listItems });
+        blocks.push({ type: listType, content: '', items: listItems, headingLevel: 0 });
         listItems = [];
       }
     };
@@ -57,20 +73,22 @@ export class MarkdownParser {
         flushParagraph();
         flushList();
         if (blocks.length > 0 && blocks[blocks.length - 1].type !== MarkdownBlockType.SPACER) {
-          blocks.push({ type: MarkdownBlockType.SPACER, content: '', items: [] });
+          blocks.push({ type: MarkdownBlockType.SPACER, content: '', items: [], headingLevel: 0 });
         }
       } else if (line === '---' || line === '***') {
         flushParagraph();
         flushList();
-        blocks.push({ type: MarkdownBlockType.DIVIDER, content: '', items: [] });
-      } else if (line.startsWith('## ')) {
+        blocks.push({ type: MarkdownBlockType.DIVIDER, content: '', items: [], headingLevel: 0 });
+      } else if (MarkdownParser.headingLevel(line) > 0) {
+        const level: number = MarkdownParser.headingLevel(line);
         flushParagraph();
         flushList();
-        blocks.push({ type: MarkdownBlockType.HEADING, content: line.substring(3).trim(), items: [] });
-      } else if (line.startsWith('# ')) {
-        flushParagraph();
-        flushList();
-        blocks.push({ type: MarkdownBlockType.HEADING, content: line.substring(2).trim(), items: [] });
+        blocks.push({
+          type: MarkdownBlockType.HEADING,
+          content: MarkdownParser.headingContent(line, level),
+          items: [],
+          headingLevel: level
+        });
       } else if (line.startsWith('- ') || line.startsWith('* ')) {
         flushParagraph();
         if (listItems.length > 0 && listType !== MarkdownBlockType.BULLET_LIST) flushList();
@@ -107,10 +125,13 @@ export class MarkdownParser {
       if (start > cursor) segments.push({ text: value.substring(cursor, start), bold: false });
       const end: number = value.indexOf('**', start + 2);
       if (end < 0) {
-        segments.push({ text: value.substring(start + 2), bold: false });
+        segments.push({ text: value.substring(start).split('**').join(''), bold: false });
         break;
       }
-      segments.push({ text: value.substring(start + 2, end), bold: true });
+      const boldText: string = value.substring(start + 2, end);
+      if (boldText.length > 0) {
+        segments.push({ text: boldText, bold: true });
+      }
       cursor = end + 2;
     }
     if (segments.length === 0) segments.push({ text: value.split('**').join(''), bold: false });

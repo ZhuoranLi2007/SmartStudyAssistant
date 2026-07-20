@@ -31,6 +31,7 @@ export interface MarkdownBlock {
   type: MarkdownBlockType;
   content: string;
   items: string[];
+  headingLevel: number;
 }
 
 export interface QuickQuestion {
@@ -119,6 +120,7 @@ export interface AiChatHistory {
 
 export interface ChatMessage {
   id: string;
+  revision: number;
   role: ChatRole;
   content: string;
   createdAt: number;

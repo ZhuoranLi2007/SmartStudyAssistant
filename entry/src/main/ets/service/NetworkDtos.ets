@@ -35,3 +35,7 @@ export class StudyTaskRequest {
 export class TaskStatusRequest {
   status: string = '未开始';
 }
+
+export class WrongQuestionTrainingSubmitRequest {
+  selectedIndex: number = -1;
+}

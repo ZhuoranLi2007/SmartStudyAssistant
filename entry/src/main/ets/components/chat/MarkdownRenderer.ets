@@ -5,29 +5,60 @@ import { MarkdownParser } from './MarkdownParser';
 export struct MarkdownRenderer {
   @Prop content: string = '';
 
+  private headingSize(level: number): number {
+    if (level === 1) return 19;
+    if (level === 2) return 17;
+    return 15;
+  }
+
+  private headingLineHeight(level: number): number {
+    if (level === 1) return 28;
+    if (level === 2) return 25;
+    return 23;
+  }
+
   @Builder
-  private richLine(content: string, size: number, weight: FontWeight) {
+  private richLine(content: string, size: number, lineHeight: number, weight: FontWeight, color: string) {
     Text() {
       ForEach(MarkdownParser.inlineSegments(content), (segment: MarkdownInlineSegment) => {
-        Span(segment.text).fontWeight(segment.bold ? FontWeight.Bold : weight)
+        Span(segment.text)
+          .fontWeight(segment.bold ? FontWeight.Bold : weight)
+          .fontColor(color)
       })
-    }.fontSize(size).fontColor('#172033').lineHeight(size + 8).width('100%')
+    }
+    .fontSize(size)
+    .fontColor(color)
+    .fontWeight(weight)
+    .lineHeight(lineHeight)
+    .width('100%')
   }
 
   build() {
-    Column({ space: 5 }) {
+    Column({ space: 7 }) {
       ForEach(MarkdownParser.parse(this.content), (block: MarkdownBlock, blockIndex: number) => {
         if (block.type === MarkdownBlockType.HEADING) {
-          this.richLine(block.content, 16, FontWeight.Bold)
+          this.richLine(
+            block.content,
+            this.headingSize(block.headingLevel),
+            this.headingLineHeight(block.headingLevel),
+            FontWeight.Bold,
+            '#172033'
+          )
+          if (block.headingLevel === 1) {
+            Divider().color('#EEF1F6').strokeWidth(1)
+          }
         } else if (block.type === MarkdownBlockType.PARAGRAPH) {
-          this.richLine(block.content, 15, FontWeight.Normal)
+          this.richLine(block.content, 15, 23, FontWeight.Normal, '#243047')
         } else if (block.type === MarkdownBlockType.BULLET_LIST || block.type === MarkdownBlockType.NUMBERED_LIST) {
-          Column({ space: 5 }) {
+          Column({ space: 7 }) {
             ForEach(block.items, (item: string, itemIndex: number) => {
               Row({ space: 7 }) {
                 Text(block.type === MarkdownBlockType.NUMBERED_LIST ? `${itemIndex + 1}.` : '•')
-                  .fontSize(14).fontColor('#4777F5').alignSelf(ItemAlign.Start)
-                Column() { this.richLine(item, 14, FontWeight.Normal) }.layoutWeight(1)
+                  .fontSize(14).fontWeight(FontWeight.Bold).fontColor('#4777F5')
+                  .width(20).textAlign(TextAlign.Center).alignSelf(ItemAlign.Start)
+                Column() {
+                  this.richLine(item, 14, 21, FontWeight.Normal, '#243047')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               }.width('100%').alignItems(VerticalAlign.Top)
             }, (item: string, itemIndex: number) => `${itemIndex}_${item}`)
           }.width('100%')

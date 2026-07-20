@@ -60,12 +60,18 @@ export interface Paper {
 
 export interface StudyTask {
   id: number;
+  studentProfileId: number;
+  targetId: number;
   name: string;
   taskType: string;
   subject: string;
   difficulty: string;
-  createDate: string;
   status: string;
+  scheduledDate: string;
+  durationMinutes: number;
+  knowledgePoint: string;
+  sourceSessionId: string;
+  createdAt: string;
 }
 
 export interface RecommendationResult {

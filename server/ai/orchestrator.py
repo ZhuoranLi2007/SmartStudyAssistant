@@ -117,6 +117,17 @@ def _fallback_answer(intent: IntentType, facts: dict[str, Any], clarification: s
         return f"当前查询到 {len(facts.get('orders') or [])} 条订单记录。"
     if intent == IntentType.UNKNOWN:
         return "我还没有理解这个问题。你可以咨询课程推荐、试卷、学习计划、错题或学习报告。"
+    profile = facts.get("studentProfile") or {}
+    subjects = profile.get("subjects") or []
+    if profile:
+        subject = subjects[0] if subjects else {}
+        weak_points = subject.get("weakPoints") or []
+        detail = f"{profile.get('name', '学生')}目前是{profile.get('grade', '')}"
+        if subject:
+            detail += f"，{subject.get('subject', '')}最近成绩为{subject.get('score', 0):g}分"
+        if weak_points:
+            detail += f"，薄弱点主要是{'、'.join(weak_points)}"
+        return f"我已结合最新学生档案：{detail}。请告诉我想重点解决的学习问题，我会给出更具体的建议。"
     return "我可以结合学生档案、课程、试卷和学习记录提供建议。你也可以告诉我年级、学科和具体困难。"
 
 
@@ -143,6 +154,38 @@ class AIOrchestrator:
             registry.register_tool(tool)
         return registry
 
+    async def _student_snapshot(self, student, message: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        subjects = list((await self.db.scalars(select(StudentSubjectProfile).where(
+            StudentSubjectProfile.student_profile_id == student.id
+        ).order_by(StudentSubjectProfile.updated_at.desc(), StudentSubjectProfile.id.desc()))).all())
+        preferred = next((item for item in subjects if item.subject in message), subjects[0] if subjects else None)
+        snapshot = {
+            "studentId": student.id,
+            "name": student.name,
+            "grade": student.grade,
+            "learningGoal": student.learning_goal,
+            "weeklyStudyMinutes": student.weekly_study_minutes,
+            "weeklyHours": round(student.weekly_study_minutes / 60, 1),
+            "subjects": [{
+                "subject": item.subject,
+                "score": item.recent_score,
+                "weakPoints": item.weak_points,
+            } for item in subjects],
+        }
+        context = {
+            "studentId": student.id,
+            "studentName": student.name,
+            "grade": student.grade,
+            "learningGoal": student.learning_goal,
+            "weeklyStudyMinutes": student.weekly_study_minutes,
+            "allSubjects": snapshot["subjects"],
+        }
+        if preferred:
+            context["subject"] = preferred.subject
+            context["score"] = preferred.recent_score
+            context["weakPoints"] = preferred.weak_points
+        return snapshot, context
+
     async def _execute(self, registry: ToolRegistry, intent: IntentResult, message: str) -> tuple[list[dict], dict, list[dict]]:
         calls: list[dict] = []
         facts: dict[str, Any] = {}
@@ -155,7 +198,7 @@ class AIOrchestrator:
 
         entities = intent.extracted_entities
         if intent.intent == IntentType.COURSE_RECOMMENDATION:
-            await call("student_profile_tool", {"subject": entities.get("subject")})
+            facts["studentProfile"] = await call("student_profile_tool", {"subject": entities.get("subject")})
             result = await call("course_recommend_tool", {"subject": entities["subject"]})
             recommendation = result.get("recommendation") or {}
             facts.update(recommendation)
@@ -258,28 +301,22 @@ class AIOrchestrator:
             self.memory.add_message(session, "user", message, "UNKNOWN", client_id)
             await self.db.flush()
 
+        student_snapshot, latest_context = await self._student_snapshot(student, message)
         context = dict(session.context_json or {})
-        context.setdefault("studentId", student.id)
-        context.setdefault("grade", student.grade)
-        context.setdefault("learningGoal", student.learning_goal)
-        subjects = list((await self.db.scalars(select(StudentSubjectProfile).where(
-            StudentSubjectProfile.student_profile_id == student.id
-        ))).all())
-        preferred = next((item for item in subjects if item.subject in message), subjects[0] if subjects else None)
-        if preferred:
-            context.setdefault("subject", preferred.subject)
-            context.setdefault("score", preferred.recent_score)
-            context.setdefault("weakPoints", preferred.weak_points)
+        context.update(latest_context)
 
         intent = await IntentClassifier(self.provider).classify(message, context)
-        session.context_json = intent.extracted_entities
+        refreshed_context = dict(context)
+        refreshed_context.update(intent.extracted_entities)
+        session.context_json = refreshed_context
         request.intent = intent.intent.value
         tool_calls: list[dict] = []
-        facts: dict[str, Any] = {}
+        facts: dict[str, Any] = {"studentProfile": student_snapshot}
         cards: list[dict[str, Any]] = []
         if not intent.missing_fields:
             registry = await self._register_tools(session, request.request_id, student)
-            tool_calls, facts, cards = await self._execute(registry, intent, message)
+            tool_calls, tool_facts, cards = await self._execute(registry, intent, message)
+            facts.update(tool_facts)
         sources = await RAGService(self.db).search(message)
         fallback = _fallback_answer(intent.intent, facts, intent.clarification_question)
         history = await self.memory.recent_messages(session)

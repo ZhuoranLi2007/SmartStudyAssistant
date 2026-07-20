@@ -158,6 +158,67 @@ async def wrong_question_list(db: AsyncSession, user: User, student_profile_id: 
     } for row in rows]
 
 
+async def wrong_question_training(
+    db: AsyncSession, user: User, student_profile_id: int, wrong_question_id: int,
+) -> dict:
+    await ensure_student_access(db, user, student_profile_id)
+    wrong = await db.get(WrongQuestion, wrong_question_id)
+    if wrong is None or wrong.student_profile_id != student_profile_id:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    question = await db.get(PaperQuestion, wrong.question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="原题数据不存在")
+    return {
+        "id": wrong.id,
+        "questionId": question.id,
+        "subject": wrong.subject,
+        "knowledgePoint": wrong.knowledge_point,
+        "question": question.stem,
+        "options": question.options_json,
+        "previousAnswer": wrong.user_answer,
+        "wrongCount": wrong.wrong_count,
+        "mastered": wrong.mastered,
+    }
+
+
+async def submit_wrong_question_training(
+    db: AsyncSession, user: User, student_profile_id: int, wrong_question_id: int, selected_index: int,
+) -> dict:
+    await ensure_student_access(db, user, student_profile_id)
+    if user.role != "student":
+        raise HTTPException(status_code=403, detail="错题复测由学生账号完成")
+    wrong = await db.get(WrongQuestion, wrong_question_id)
+    if wrong is None or wrong.student_profile_id != student_profile_id:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    question = await db.get(PaperQuestion, wrong.question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="原题数据不存在")
+    if selected_index < 0 or selected_index >= len(question.options_json):
+        raise HTTPException(status_code=422, detail="选项编号无效")
+    correct = selected_index == question.correct_index
+    if correct:
+        wrong.mastered = True
+        tasks = list((await db.scalars(select(StudyTask).where(
+            StudyTask.student_profile_id == student_profile_id,
+            StudyTask.task_type == "错题",
+            StudyTask.target_id == wrong_question_id,
+        ))).all())
+        for task in tasks:
+            task.status = "已完成"
+    else:
+        wrong.mastered = False
+        wrong.wrong_count += 1
+        wrong.user_answer = question.options_json[selected_index]
+    await db.flush()
+    return {
+        "correct": correct,
+        "correctIndex": question.correct_index,
+        "explanation": question.explanation or wrong.explanation,
+        "mastered": wrong.mastered,
+        "wrongCount": wrong.wrong_count,
+    }
+
+
 async def learning_report(db: AsyncSession, user: User, student_profile_id: int) -> dict:
     await ensure_student_access(db, user, student_profile_id)
     completed_courses = await db.scalar(select(func.count(CourseEnrollment.id)).where(
