@@ -1,4 +1,5 @@
-import { ChatMessage, Course, CourseLevel, Paper, StudentProfile, StudyTask, TaskStatus } from '../model/DomainModels';
+import { Course, CourseLevel, Paper, StudentProfile, StudyTask, TaskStatus } from '../model/DomainModels';
+import { ChatMessage, ChatRole } from '../model/AiModels';
 
 export class MockDataService {
   private static tasks: StudyTask[] = [
@@ -124,9 +125,18 @@ export class MockDataService {
   static welcomeMessages(): ChatMessage[] {
     return [{
       id: 'welcome',
-      role: 'assistant',
-      content: '您好，我是智学助手。请告诉我孩子的年级、科目、最近成绩、薄弱点和学习目标。',
-      createTime: '现在'
+      role: ChatRole.ASSISTANT,
+      content: '您好！我是您的 AI 学习顾问小智，很高兴为您和孩子提供学习帮助。\n\n您可以告诉我孩子的年级、科目、最近成绩、薄弱知识点或学习目标。',
+      createdAt: Date.now(),
+      createTime: '现在',
+      isStreaming: false,
+      fallbackUsed: false,
+      intent: '',
+      cards: [],
+      sources: [],
+      errorMessage: '',
+      clientMessageId: '',
+      retryQuestion: ''
     }];
   }
 }

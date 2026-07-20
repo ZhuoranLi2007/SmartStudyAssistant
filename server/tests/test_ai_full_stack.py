@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -47,6 +48,12 @@ async def test_health_rag_and_structured_ai_response(client):
     assert data["cards"]
     assert data["requestId"]
     assert all(card["id"] > 0 for card in data["cards"])
+    course_cards = [card for card in data["cards"] if card["type"] == "COURSE"]
+    assert course_cards
+    assert course_cards[0]["grade"] == "六年级"
+    assert course_cards[0]["subject"] == "数学"
+    assert course_cards[0]["lessonCount"] > 0
+    assert course_cards[0]["recommendationReason"]
 
 
 @pytest.mark.asyncio
@@ -96,6 +103,49 @@ async def test_stale_student_profile_id_returns_guidance_instead_of_404(client):
     data = chat.json()["data"]
     assert data["missingFields"] == ["studentProfile"]
     assert data["cards"] == []
+
+
+@pytest.mark.asyncio
+async def test_user_without_student_can_ask_general_question(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+
+    response = await client.post("/api/ai/chat", headers=auth, json={
+        "studentProfileId": 0,
+        "clientMessageId": str(uuid.uuid4()),
+        "message": "小学阶段应该怎样培养每天阅读的习惯？",
+    })
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["intent"] in {"GENERAL_CHAT", "KNOWLEDGE_QA"}
+    assert data["answer"]
+    assert data["missingFields"] == []
+    assert data["sessionId"] == ""
+
+
+@pytest.mark.asyncio
+async def test_sse_order_and_study_plan_card_details(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+    student = await create_student(client, parent["accessToken"])
+
+    stream = await client.post("/api/ai/chat/stream", headers=auth, json={
+        "studentProfileId": student["id"],
+        "clientMessageId": str(uuid.uuid4()),
+        "message": "请根据学生档案生成一周学习计划",
+    })
+    assert stream.status_code == 200, stream.text
+    body = stream.text
+    assert body.index("event: meta") < body.index("event: intent")
+    assert body.index("event: intent") < body.index("event: tool_start")
+    assert body.index("event: tool_start") < body.index("event: delta")
+    assert body.index("event: delta") < body.index("event: done")
+    done_text = body.split("event: done\ndata: ", 1)[1].split("\n\n", 1)[0]
+    done = json.loads(done_text)
+    plan_cards = [card for card in done["cards"] if card["type"] == "STUDY_PLAN"]
+    assert len(plan_cards) == 1
+    assert len(plan_cards[0]["tasks"]) == 7
+    assert plan_cards[0]["tasks"][0]["durationMinutes"] > 0
 
 
 @pytest.mark.asyncio

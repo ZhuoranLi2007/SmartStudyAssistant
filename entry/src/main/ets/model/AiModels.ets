@@ -1,5 +1,44 @@
 import { PracticeQuestion } from './HomeModels';
 
+export enum ChatRole {
+  USER = 'user',
+  ASSISTANT = 'assistant',
+  SYSTEM = 'system'
+}
+
+export enum AiCardType {
+  COURSE = 'COURSE',
+  PAPER = 'PAPER',
+  STUDY_PLAN = 'STUDY_PLAN',
+  ORDER = 'ORDER'
+}
+
+export enum MarkdownBlockType {
+  PARAGRAPH = 'PARAGRAPH',
+  HEADING = 'HEADING',
+  BULLET_LIST = 'BULLET_LIST',
+  NUMBERED_LIST = 'NUMBERED_LIST',
+  DIVIDER = 'DIVIDER',
+  SPACER = 'SPACER'
+}
+
+export interface MarkdownInlineSegment {
+  text: string;
+  bold: boolean;
+}
+
+export interface MarkdownBlock {
+  type: MarkdownBlockType;
+  content: string;
+  items: string[];
+}
+
+export interface QuickQuestion {
+  icon: string;
+  label: string;
+  question: string;
+}
+
 export interface AiToolCall {
   name: string;
   arguments: Object;
@@ -12,8 +51,32 @@ export interface AiCard {
   title: string;
   subtitle: string;
   price?: number;
+  grade?: string;
+  subject?: string;
+  level?: string;
+  difficulty?: string;
+  recommendationReason?: string;
+  lessonCount?: number;
+  questionCount?: number;
+  knowledgePoints?: string[];
+  tasks?: AiPlanTask[];
+  orderNo?: string;
+  orderStatus?: string;
+  amount?: number;
   route: string;
   routeParams: Object;
+}
+
+export interface AiPlanTask {
+  id: number;
+  date: string;
+  title: string;
+  taskType: string;
+  durationMinutes: number;
+  courseId?: number;
+  paperId?: number;
+  knowledgePoint: string;
+  status: string;
 }
 
 export interface AiSource {
@@ -54,14 +117,39 @@ export interface AiChatHistory {
   messages: AiHistoryMessage[];
 }
 
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  content: string;
+  createdAt: number;
+  createTime: string;
+  isStreaming: boolean;
+  fallbackUsed: boolean;
+  intent: string;
+  cards: AiCard[];
+  sources: AiSource[];
+  errorMessage: string;
+  clientMessageId: string;
+  retryQuestion: string;
+}
+
 export interface AiStreamCallbacks {
   onDelta: (content: string) => void;
   onIntent: (intent: string) => void;
+  onMeta: (sessionId: string, requestId: string) => void;
+  onSource: (source: AiSource) => void;
 }
 
 export interface AiSsePayload {
   content?: string;
   intent?: string;
+  sessionId?: string;
+  requestId?: string;
+  title?: string;
+  sourceType?: string;
+  sourceId?: string;
+  score?: number;
+  excerpt?: string;
 }
 
 export interface PaperQuestionDto {

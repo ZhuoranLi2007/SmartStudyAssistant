@@ -27,5 +27,6 @@ class CourseSearchTool(BusinessTool):
         return {"courses": [{
             "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
             "level": row.level, "difficulty": row.difficulty, "price": float(row.price),
-            "knowledgePoints": row.knowledge_points,
+            "totalLessons": row.total_lessons, "knowledgePoints": row.knowledge_points,
+            "suitableFor": row.suitable_for, "description": row.description,
         } for row in rows]}

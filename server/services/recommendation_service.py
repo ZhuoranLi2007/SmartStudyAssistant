@@ -75,8 +75,17 @@ async def recommend_for_student(
         "score": subject_profile.recent_score,
         "rules": rules,
         "explanation": explanation,
-        "courses": [{"id": row.id, "name": row.name, "level": row.level} for row in course_rows],
-        "papers": [{"id": row.id, "name": row.name, "difficulty": row.difficulty} for row in paper_rows],
+        "courses": [{
+            "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
+            "level": row.level, "difficulty": row.difficulty, "price": float(row.price),
+            "totalLessons": row.total_lessons, "knowledgePoints": row.knowledge_points,
+            "suitableFor": row.suitable_for, "description": row.description,
+        } for row in course_rows],
+        "papers": [{
+            "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
+            "difficulty": row.difficulty, "questionCount": row.question_count,
+            "knowledgePoints": row.knowledge_points,
+        } for row in paper_rows],
     }
     db.add(RecommendationRecord(
         user_id=user.id,

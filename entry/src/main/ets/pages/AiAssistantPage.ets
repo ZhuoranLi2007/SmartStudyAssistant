@@ -3,11 +3,21 @@ import { promptAction } from '@kit.ArkUI';
 import { speechAiService } from '../ai/SpeechAiService';
 import { AppRoutes } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
-import { AiResponseCard } from '../components/ai/AiResponseCard';
+import { ChatInputBar } from '../components/chat/ChatInputBar';
+import { ChatMessageBubble } from '../components/chat/ChatMessageBubble';
+import { SuggestionChip } from '../components/chat/SuggestionChip';
 import { MainTabBar } from '../components/MainTabBar';
-import { AiCard, AiChatHistory, AiChatResult, AiHistoryMessage, AiSource, AiStreamCallbacks } from '../model/AiModels';
-import { ChatMessage } from '../model/DomainModels';
-import { MockDataService } from '../service/MockDataService';
+import {
+  AiChatHistory,
+  AiChatResult,
+  AiHistoryMessage,
+  AiSource,
+  AiStreamCallbacks,
+  ChatMessage,
+  ChatRole,
+  QuickQuestion
+} from '../model/AiModels';
+import { AiService } from '../service/AiService';
 import { ChatViewModel } from '../viewModel/ChatViewModel';
 
 @Component
@@ -15,18 +25,13 @@ export struct AiAssistantPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @State inputText: string = '';
-  @State messages: ChatMessage[] = MockDataService.welcomeMessages();
-  @State cards: AiCard[] = [];
-  @State sources: AiSource[] = [];
+  @State messages: ChatMessage[] = ChatViewModel.welcomeMessages();
   @State isLoading: boolean = false;
   @State isRecording: boolean = false;
   @State isRestoring: boolean = true;
   @State sessionId: string = '';
-  @State streamingText: string = '';
   @State currentIntent: string = '';
-  @State fallbackUsed: boolean = false;
-  @State lastQuestion: string = '';
-  @State errorMessage: string = '';
+  private messageScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     void this.restoreHistory();
@@ -36,9 +41,70 @@ export struct AiAssistantPage {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
   }
 
-  private addMessage(role: string, content: string): void {
-    const message: ChatMessage = { id: `${role}_${Date.now()}_${this.messages.length}`, role: role, content: content, createTime: '现在' };
-    this.messages = this.messages.concat([message]);
+  private roleFromText(role: string): ChatRole {
+    if (role === ChatRole.USER) return ChatRole.USER;
+    if (role === ChatRole.SYSTEM) return ChatRole.SYSTEM;
+    return ChatRole.ASSISTANT;
+  }
+
+  private copyMessage(message: ChatMessage): ChatMessage {
+    return {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt,
+      createTime: message.createTime,
+      isStreaming: message.isStreaming,
+      fallbackUsed: message.fallbackUsed,
+      intent: message.intent,
+      cards: message.cards.slice(),
+      sources: message.sources.slice(),
+      errorMessage: message.errorMessage,
+      clientMessageId: message.clientMessageId,
+      retryQuestion: message.retryQuestion
+    };
+  }
+
+  private replaceMessage(updated: ChatMessage): void {
+    const next: ChatMessage[] = [];
+    for (let index: number = 0; index < this.messages.length; index++) {
+      next.push(this.messages[index].id === updated.id ? updated : this.messages[index]);
+    }
+    this.messages = next;
+    this.scrollToBottom();
+  }
+
+  private scrollToBottom(): void {
+    setTimeout(() => {
+      try {
+        if (this.messages.length > 0) this.messageScroller.scrollToIndex(this.messages.length - 1, true, ScrollAlign.END);
+      } catch (error) {
+        console.warn(`聊天列表滚动失败: ${JSON.stringify(error)}`);
+      }
+    }, 40);
+  }
+
+  private appendDelta(messageId: string, delta: string): void {
+    for (let index: number = 0; index < this.messages.length; index++) {
+      if (this.messages[index].id === messageId) {
+        const updated: ChatMessage = this.copyMessage(this.messages[index]);
+        updated.content += delta;
+        updated.isStreaming = true;
+        this.replaceMessage(updated);
+        return;
+      }
+    }
+  }
+
+  private appendSource(messageId: string, source: AiSource): void {
+    for (let index: number = 0; index < this.messages.length; index++) {
+      if (this.messages[index].id === messageId) {
+        const updated: ChatMessage = this.copyMessage(this.messages[index]);
+        updated.sources = updated.sources.concat([source]);
+        this.replaceMessage(updated);
+        return;
+      }
+    }
   }
 
   private async restoreHistory(): Promise<void> {
@@ -49,51 +115,78 @@ export struct AiAssistantPage {
         const restored: ChatMessage[] = [];
         for (let index: number = 0; index < history.messages.length; index++) {
           const item: AiHistoryMessage = history.messages[index];
-          restored.push({ id: `${item.id}`, role: item.role, content: item.content, createTime: item.createTime });
+          const message: ChatMessage = ChatViewModel.createMessage(this.roleFromText(item.role), item.content);
+          message.id = `history_${item.id}`;
+          message.createTime = item.createTime;
+          message.intent = item.intent;
+          restored.push(message);
         }
         this.messages = restored;
         this.sessionId = history.sessionId;
+        this.scrollToBottom();
       }
     } finally {
       this.isRestoring = false;
     }
   }
 
-  private async sendQuestion(questionText: string): Promise<void> {
+  private async sendQuestion(questionText: string, retryMessage?: ChatMessage): Promise<void> {
     const question: string = questionText.trim();
     if (!question || this.isLoading) return;
-    if (this.studentProfileId <= 0) {
-      promptAction.showToast({ message: '请先创建或绑定学生档案，再使用个性化 AI 顾问' });
-      this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, null);
-      return;
+    const clientMessageId: string = retryMessage ? retryMessage.clientMessageId : AiService.createClientMessageId();
+    let assistantMessage: ChatMessage;
+    if (retryMessage) {
+      assistantMessage = this.copyMessage(retryMessage);
+      assistantMessage.content = '';
+      assistantMessage.cards = [];
+      assistantMessage.sources = [];
+      assistantMessage.errorMessage = '';
+      assistantMessage.isStreaming = true;
+      this.replaceMessage(assistantMessage);
+    } else {
+      const userMessage: ChatMessage = ChatViewModel.createMessage(ChatRole.USER, question, clientMessageId);
+      assistantMessage = ChatViewModel.createMessage(ChatRole.ASSISTANT, '', clientMessageId);
+      assistantMessage.isStreaming = true;
+      assistantMessage.retryQuestion = question;
+      this.messages = this.messages.concat([userMessage, assistantMessage]);
+      this.inputText = '';
+      this.scrollToBottom();
     }
-    this.lastQuestion = question;
-    this.errorMessage = '';
-    this.cards = [];
-    this.sources = [];
-    this.streamingText = '';
-    this.addMessage('user', question);
-    this.inputText = '';
     this.isLoading = true;
+    const assistantId: string = assistantMessage.id;
     const callbacks: AiStreamCallbacks = {
-      onDelta: (content: string): void => { this.streamingText += content; },
-      onIntent: (intent: string): void => { this.currentIntent = intent; }
+      onDelta: (content: string): void => this.appendDelta(assistantId, content),
+      onIntent: (intent: string): void => { this.currentIntent = intent; },
+      onMeta: (newSessionId: string, _requestId: string): void => {
+        if (newSessionId) this.sessionId = newSessionId;
+      },
+      onSource: (source: AiSource): void => this.appendSource(assistantId, source)
     };
     try {
       const result: AiChatResult = await ChatViewModel.send(
-        this.context(), this.studentProfileId,
-        question, this.sessionId, callbacks
+        this.context(), this.studentProfileId, question, this.sessionId, callbacks, clientMessageId
       );
       this.sessionId = result.sessionId;
       this.currentIntent = result.intent;
-      this.fallbackUsed = result.fallbackUsed;
-      this.cards = result.cards || [];
-      this.sources = result.sources || [];
-      this.addMessage('assistant', result.answer || result.assistantMessage);
-      this.streamingText = '';
+      const completed: ChatMessage = this.copyMessage(assistantMessage);
+      completed.content = result.answer || result.assistantMessage;
+      completed.isStreaming = false;
+      completed.fallbackUsed = result.fallbackUsed;
+      completed.intent = result.intent;
+      completed.cards = result.cards || [];
+      completed.sources = result.sources || [];
+      completed.errorMessage = '';
+      completed.retryQuestion = question;
+      this.replaceMessage(completed);
     } catch (error) {
-      this.streamingText = '';
-      this.errorMessage = '连接智能服务失败，已保留当前对话，可点击重试。';
+      let failed: ChatMessage = assistantMessage;
+      for (let index: number = 0; index < this.messages.length; index++) {
+        if (this.messages[index].id === assistantId) failed = this.copyMessage(this.messages[index]);
+      }
+      failed.isStreaming = false;
+      failed.errorMessage = failed.content ? '回复中断，可点击重试。' : '连接智能服务失败，可点击重试。';
+      failed.retryQuestion = question;
+      this.replaceMessage(failed);
       promptAction.showToast({ message: '智能服务暂时不可用，请检查后端网络' });
       console.error(`AI 对话失败: ${JSON.stringify(error)}`);
     } finally {
@@ -101,26 +194,39 @@ export struct AiAssistantPage {
     }
   }
 
-  private async clearConversation(): Promise<void> {
-    if (this.isLoading) return;
+  private async confirmClear(): Promise<void> {
     try {
       await ChatViewModel.clear(this.context(), this.sessionId);
       this.sessionId = '';
-      this.cards = [];
-      this.sources = [];
-      this.messages = MockDataService.welcomeMessages();
-      this.errorMessage = '';
+      this.currentIntent = '';
+      this.messages = ChatViewModel.welcomeMessages();
+      this.scrollToBottom();
     } catch (error) {
       promptAction.showToast({ message: '清空会话失败，请稍后重试' });
     }
   }
 
+  private showClearDialog(): void {
+    if (this.isLoading) return;
+    AlertDialog.show({
+      title: '清空当前会话',
+      message: '确定要清空当前会话记录吗？',
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '清空', fontColor: '#F04438', action: () => void this.confirmClear() }
+    });
+  }
+
   private async newConversation(): Promise<void> {
-    this.sessionId = '';
-    this.cards = [];
-    this.sources = [];
-    this.messages = MockDataService.welcomeMessages();
-    this.errorMessage = '';
+    if (this.isLoading) return;
+    try {
+      await ChatViewModel.startNewConversation(this.context());
+      this.sessionId = '';
+      this.currentIntent = '';
+      this.messages = ChatViewModel.welcomeMessages();
+      this.scrollToBottom();
+    } catch (error) {
+      promptAction.showToast({ message: '新会话创建失败，请稍后重试' });
+    }
   }
 
   private async toggleVoice(): Promise<void> {
@@ -152,18 +258,23 @@ export struct AiAssistantPage {
     }
   }
 
-  private async readLastAnswer(): Promise<void> {
+  private async readMessage(content: string): Promise<void> {
     try {
-      for (let index: number = this.messages.length - 1; index >= 0; index--) {
-        if (this.messages[index].role === 'assistant') {
-          const success: boolean = await speechAiService.speak(this.messages[index].content);
-          if (!success) promptAction.showToast({ message: '当前设备不支持语音播报' });
-          return;
-        }
-      }
+      const success: boolean = await speechAiService.speak(content);
+      if (!success) promptAction.showToast({ message: '当前设备不支持语音播报' });
     } catch (error) {
       promptAction.showToast({ message: '语音播报失败' });
     }
+  }
+
+  private intentText(): string {
+    if (!this.currentIntent || this.currentIntent === 'GENERAL_CHAT') return '';
+    const names: Map<string, string> = new Map<string, string>([
+      ['COURSE_RECOMMENDATION', '课程推荐'], ['COURSE_SEARCH', '课程检索'], ['PAPER_SEARCH', '试卷推荐'],
+      ['STUDY_PLAN_GENERATION', '学习计划'], ['LEARNING_ANALYSIS', '学情分析'], ['LEARNING_REPORT', '学习报告'],
+      ['WRONG_QUESTION_ANALYSIS', '错题分析'], ['ORDER_CREATION', '课程订单']
+    ]);
+    return names.get(this.currentIntent) || this.currentIntent;
   }
 
   aboutToDisappear(): void {
@@ -174,77 +285,51 @@ export struct AiAssistantPage {
   build() {
     NavDestination() {
       Column() {
-        Row({ space: 12 }) {
+        Row({ space: 10 }) {
           Column({ space: 3 }) {
-            Text('AI 学习顾问').fontSize(23).fontWeight(FontWeight.Bold).width('100%')
-            Text(this.currentIntent ? `当前意图：${this.currentIntent}` : '课程、试卷、计划和学情一站式咨询').fontSize(11).fontColor('#667085').width('100%')
-          }.layoutWeight(1)
-          Text('新会话').fontSize(12).fontColor('#2F6BFF').onClick(() => void this.newConversation())
-          Text('清空').fontSize(12).fontColor('#F04438').onClick(() => void this.clearConversation())
-        }.padding({ left: 18, right: 18, top: 14, bottom: 10 }).width('100%')
-
-        if (this.messages.length <= 1) {
-          List({ space: 8 }) {
-            ForEach(ChatViewModel.QUICK_QUESTIONS, (question: string) => {
-              ListItem() {
-                Text(question).fontSize(12).fontColor('#344054').padding({ left: 12, right: 12, top: 7, bottom: 7 })
-                  .backgroundColor('#EEF4FF').borderRadius(16).onClick(() => void this.sendQuestion(question))
+            Row({ space: 7 }) {
+              Text('AI 学习顾问').fontSize(24).fontWeight(FontWeight.Bold).fontColor('#172033')
+              if (this.intentText()) {
+                Text(this.intentText()).fontSize(9).fontColor('#5B65E8').padding({ left: 7, right: 7, top: 3, bottom: 3 })
+                  .backgroundColor('#EEF1FF').borderRadius(8)
               }
-            }, (question: string) => question)
-          }.listDirection(Axis.Horizontal).height(42).padding({ left: 14, right: 14 }).width('100%')
-        }
+            }.width('100%')
+            Text('为孩子找到更合适的学习路径').fontSize(12).fontColor('#718096').width('100%')
+          }.layoutWeight(1)
+          Text('＋ 新会话').fontSize(12).fontColor('#2F6BFF').onClick(() => void this.newConversation())
+          Text('清空').fontSize(12).fontColor('#F04438').onClick(() => this.showClearDialog())
+        }.padding({ left: 16, right: 16, top: 12, bottom: 10 }).width('100%')
 
-        List({ space: 10 }) {
+        List({ space: 8 }) {
+          ForEach(ChatViewModel.QUICK_QUESTIONS, (item: QuickQuestion) => {
+            ListItem() {
+              SuggestionChip({ item: item, disabled: this.isLoading || this.isRestoring,
+                onSelect: (question: string): void => { void this.sendQuestion(question); } })
+            }
+          }, (item: QuickQuestion) => item.label)
+        }.listDirection(Axis.Horizontal).height(48).padding({ left: 14, right: 14 }).width('100%')
+
+        List({ space: 14, scroller: this.messageScroller }) {
           ForEach(this.messages, (message: ChatMessage) => {
             ListItem() {
-              Row() {
-                if (message.role === 'assistant') Blank().layoutWeight(1)
-                Column({ space: 5 }) {
-                  Text(message.role === 'assistant' ? '智学助手' : '我').fontSize(11).fontColor('#667085').width('100%')
-                  Text(message.content).fontSize(15).fontColor(message.role === 'assistant' ? '#101828' : Color.White).lineHeight(22)
-                }.padding(12).constraintSize({ maxWidth: '84%' })
-                  .backgroundColor(message.role === 'assistant' ? Color.White : '#2F6BFF').borderRadius(15)
-                if (message.role === 'user') Blank().layoutWeight(1)
-              }.width('100%')
+              ChatMessageBubble({
+                message: message,
+                onRead: (content: string): void => { void this.readMessage(content); },
+                onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
+              })
             }
           }, (message: ChatMessage) => message.id)
-          if (this.isLoading) {
-            ListItem() {
-              Text(this.streamingText || '智学助手正在调用学习工具...').fontColor('#667085').padding(12)
-                .backgroundColor(Color.White).borderRadius(14)
-            }
-          }
-          if (this.errorMessage) {
-            ListItem() {
-              Row() {
-                Text(this.errorMessage).fontSize(12).fontColor('#B42318').layoutWeight(1)
-                Text('重试').fontSize(13).fontColor('#2F6BFF').onClick(() => void this.sendQuestion(this.lastQuestion))
-              }.padding(12).backgroundColor('#FEF3F2').borderRadius(12)
-            }
-          }
-        }.layoutWeight(1).padding({ left: 14, right: 14 }).width('100%')
+        }.layoutWeight(1).padding({ left: 13, right: 13, top: 10, bottom: 10 }).width('100%')
 
-        if (this.cards.length > 0) {
-          List({ space: 10 }) {
-            ForEach(this.cards, (card: AiCard) => {
-              ListItem() { AiResponseCard({ card: card }) }
-            }, (card: AiCard) => `${card.type}_${card.id}`)
-          }.listDirection(Axis.Horizontal).height(138).padding({ left: 14, right: 14 }).width('100%')
-        }
-        if (this.sources.length > 0 || this.fallbackUsed) {
-          Row({ space: 8 }) {
-            if (this.fallbackUsed) Text('Mock兜底').fontSize(10).fontColor('#B54708')
-            if (this.sources.length > 0) Text(`参考来源 ${this.sources.length} 条`).fontSize(10).fontColor('#667085')
-          }.padding({ left: 16, right: 16, bottom: 4 }).width('100%')
-        }
-        Row({ space: 7 }) {
-          Button(this.isRecording ? '停止' : '语音').fontSize(12).height(42).backgroundColor(this.isRecording ? '#F04438' : '#7A5AF8').onClick(() => void this.toggleVoice())
-          TextInput({ placeholder: '描述学生学情或提出学习问题...', text: this.inputText }).layoutWeight(1).height(42).onChange((value: string) => this.inputText = value)
-          Button('发送').fontSize(12).height(42).enabled(!this.isLoading && !this.isRestoring).backgroundColor('#2F6BFF').onClick(() => void this.sendQuestion(this.inputText))
-          Button('朗读').fontSize(12).height(42).backgroundColor('#12B76A').onClick(() => void this.readLastAnswer())
-        }.padding(9).width('100%').backgroundColor(Color.White)
+        ChatInputBar({
+          text: $inputText,
+          isSending: this.isLoading || this.isRestoring,
+          isRecording: this.isRecording,
+          onSend: (): void => { void this.sendQuestion(this.inputText); },
+          onVoice: (): void => { void this.toggleVoice(); }
+        })
         MainTabBar({ activeRoute: AppRoutes.AI_ASSISTANT })
-      }.width('100%').height('100%').backgroundColor('#F8FAFC')
+      }.width('100%').height('100%').backgroundColor('#F3F6FB')
     }.hideTitleBar(true)
   }
 }

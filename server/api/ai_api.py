@@ -6,8 +6,11 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.ai import AIOrchestrator
+from server.ai.intent import IntentType
+from server.ai.intent.intent_classifier import classify_by_rules
 from server.ai.memory import ConversationMemoryService
-from server.ai.providers import ProviderRouter
+from server.ai.orchestrator import SYSTEM_PROMPT
+from server.ai.providers import ProviderError, ProviderRouter
 from server.ai.rag import RAGService
 from server.config import get_settings
 from server.database import get_db
@@ -23,12 +26,12 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
-def _missing_profile_result() -> dict:
+def _missing_profile_result(intent: str = "STUDENT_ANALYSIS") -> dict:
     request_id = str(uuid4())
     answer = "当前账号还没有有效的学生档案，请先填写年级、成绩、薄弱知识点和学习目标，再使用个性化 AI 顾问。"
     return {
         "sessionId": "",
-        "intent": "STUDENT_ANALYSIS",
+        "intent": intent,
         "confidence": 1.0,
         "answer": answer,
         "assistantMessage": answer,
@@ -39,6 +42,48 @@ def _missing_profile_result() -> dict:
         "sources": [],
         "fallbackUsed": False,
         "requestId": request_id,
+    }
+
+
+async def _without_student_result(payload: AIChatRequest, db: AsyncSession) -> dict:
+    intent = classify_by_rules(payload.message)
+    if intent.intent not in {IntentType.GENERAL_CHAT, IntentType.KNOWLEDGE_QA, IntentType.UNKNOWN}:
+        return _missing_profile_result(intent.intent.value)
+    sources = await RAGService(db).search(payload.message)
+    safe_sources = [
+        {key: value for key, value in source.items() if key != "content"} | {"excerpt": source["content"][:180]}
+        for source in sources
+    ]
+    fallback = "我可以先回答通用学习问题。创建或绑定学生档案后，还能获得个性化课程、试卷和学习计划建议。"
+    evidence = json.dumps([
+        {"title": source.get("title", ""), "content": source.get("content", "")[:500]}
+        for source in sources
+    ], ensure_ascii=False)
+    provider = ProviderRouter()
+    try:
+        result = await provider.complete([
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": f"当前未绑定学生档案，只能回答通用教育问题。参考资料：{evidence}"},
+            {"role": "user", "content": payload.message},
+        ], fallback_content=fallback)
+        answer = result.content or fallback
+        fallback_used = result.fallback_used or result.model.startswith("mock")
+    except ProviderError:
+        answer = fallback
+        fallback_used = True
+    return {
+        "sessionId": "",
+        "intent": intent.intent.value,
+        "confidence": intent.confidence,
+        "answer": answer,
+        "assistantMessage": answer,
+        "missingFields": [],
+        "clarificationQuestion": None,
+        "toolCalls": [],
+        "cards": [],
+        "sources": safe_sources,
+        "fallbackUsed": fallback_used,
+        "requestId": str(uuid4()),
     }
 
 
@@ -59,7 +104,7 @@ async def ai_health():
 @router.post("/chat")
 async def ai_chat(payload: AIChatRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     if payload.student_profile_id <= 0 or await db.get(StudentProfile, payload.student_profile_id) is None:
-        return ok(_missing_profile_result())
+        return ok(await _without_student_result(payload, db))
     result = await AIOrchestrator(db, user).handle(
         payload.student_profile_id, payload.message, payload.session_id,
         payload.client_message_id, payload.user_id,
@@ -70,11 +115,13 @@ async def ai_chat(payload: AIChatRequest, db: AsyncSession = Depends(get_db), us
 @router.post("/chat/stream")
 async def ai_chat_stream(payload: AIChatRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     if payload.student_profile_id <= 0 or await db.get(StudentProfile, payload.student_profile_id) is None:
-        result = _missing_profile_result()
+        result = await _without_student_result(payload, db)
 
         async def missing_profile_events():
             yield _sse("meta", {"requestId": result["requestId"], "sessionId": ""})
-            yield _sse("intent", {"intent": result["intent"], "confidence": 1.0})
+            yield _sse("intent", {"intent": result["intent"], "confidence": result["confidence"]})
+            for source in result["sources"]:
+                yield _sse("source", source)
             yield _sse("delta", {"content": result["answer"]})
             yield _sse("done", result)
 

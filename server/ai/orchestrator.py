@@ -32,6 +32,8 @@ from server.tools import (
 SYSTEM_PROMPT = """你是智学规划助手，面向中小学生和家长。
 只能依据工具结果和检索资料回答，不得虚构课程、试卷、价格、成绩、订单状态或统计数字。
 不要输出内部思维过程。回答应简洁、友好，明确说明推荐依据和下一步操作。
+使用短段落、简单标题和单层列表；不要输出表格、HTML、代码块或复杂嵌套列表。
+课程、试卷、计划和订单的详细字段由结构化卡片展示，正文不要重复抄写完整卡片内容。
 当资料不足时承认不足；教育建议仅供辅助参考。"""
 
 
@@ -48,13 +50,20 @@ class PreparedChat:
     history: list[dict[str, str]]
 
 
-def _course_cards(courses: list[dict]) -> list[dict]:
+def _course_cards(courses: list[dict], recommendation_reason: str = "") -> list[dict]:
     return [{
         "type": "COURSE",
         "id": item["id"],
         "title": item["name"],
         "subtitle": f"{item.get('grade', '')} {item.get('subject', '')} {item.get('level', '')}".strip(),
         "price": item.get("price"),
+        "grade": item.get("grade", ""),
+        "subject": item.get("subject", ""),
+        "level": item.get("level", ""),
+        "difficulty": item.get("difficulty", ""),
+        "lessonCount": item.get("totalLessons"),
+        "knowledgePoints": item.get("knowledgePoints") or [],
+        "recommendationReason": recommendation_reason or item.get("suitableFor", ""),
         "route": "CourseDetailPage",
         "routeParams": {"id": item["id"]},
     } for item in courses]
@@ -66,6 +75,11 @@ def _paper_cards(papers: list[dict]) -> list[dict]:
         "id": item["id"],
         "title": item["name"],
         "subtitle": f"{item.get('grade', '')} {item.get('subject', '')} {item.get('difficulty', '')}".strip(),
+        "grade": item.get("grade", ""),
+        "subject": item.get("subject", ""),
+        "difficulty": item.get("difficulty", ""),
+        "questionCount": item.get("questionCount"),
+        "knowledgePoints": item.get("knowledgePoints") or [],
         "route": "PaperDetailPage",
         "routeParams": {"id": item["id"]},
     } for item in papers]
@@ -146,7 +160,7 @@ class AIOrchestrator:
             recommendation = result.get("recommendation") or {}
             facts.update(recommendation)
             facts["recommendation"] = recommendation
-            cards.extend(_course_cards(recommendation.get("courses") or []))
+            cards.extend(_course_cards(recommendation.get("courses") or [], recommendation.get("explanation", "")))
             cards.extend(_paper_cards(recommendation.get("papers") or []))
         elif intent.intent == IntentType.COURSE_SEARCH:
             result = await call("course_search_tool", entities)
@@ -160,8 +174,9 @@ class AIOrchestrator:
             result = await call("study_plan_tool", {})
             facts.update(result)
             plan = result.get("studyPlan") or {}
-            cards.append({"type": "STUDY_PLAN", "id": plan.get("planId"), "title": plan.get("title", "一周学习计划"),
-                          "subtitle": f"共 {plan.get('taskCount', 0)} 项任务", "route": "StudyPlanPage", "routeParams": {}})
+            cards.append({"type": "STUDY_PLAN", "id": plan.get("planId") or 0, "title": plan.get("title", "一周学习计划"),
+                          "subtitle": f"共 {plan.get('taskCount', 0)} 项任务", "tasks": plan.get("tasks") or [],
+                          "route": "StudyPlanPage", "routeParams": {}})
         elif intent.intent == IntentType.LEARNING_ANALYSIS:
             facts.update(await call("student_profile_tool", {"subject": entities.get("subject")}))
             facts.update(await call("learning_report_tool", {}))
@@ -176,7 +191,9 @@ class AIOrchestrator:
             order = result.get("order")
             if order:
                 cards.append({"type": "ORDER", "id": order["id"], "title": order.get("courseName", "课程订单"),
-                              "subtitle": f"{order['status']} · ¥{order['amount']:.2f}", "route": "OrderDetailPage",
+                              "subtitle": f"{order['status']} · ¥{order['amount']:.2f}", "orderNo": order.get("orderNo", ""),
+                              "orderStatus": order.get("status", "PENDING"), "amount": float(order.get("amount", 0)),
+                              "route": "OrderDetailPage",
                               "routeParams": {"id": order["id"]}})
         elif intent.intent == IntentType.MY_COURSES:
             facts["courses"] = await my_courses(self.db, self.user, registry.context.student.id if registry.context else None)
