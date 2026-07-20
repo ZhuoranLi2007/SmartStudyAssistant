@@ -1,35 +1,66 @@
-# FastAPI 后端
+# FastAPI 后端说明
 
-后端采用 Router → Service/SQLAlchemy → AI Orchestrator → Tool Registry → RAG/Provider 的分层思路。运行环境使用 MySQL 8.x，自动化测试使用独立 SQLite。配置真实 DeepSeek Key 后可调用 `deepseek-v4-flash`；无 Key 时按配置安全降级到 Mock，规则和数据库查询不受影响。完整 AI 说明见 `server/README_AI.md`。
+后端采用 Router → Service/SQLAlchemy → AI Orchestrator → Tool Registry → RAG/Provider 的分层结构。开发运行使用 MySQL 8.x，自动化测试使用隔离 SQLite。
 
-主要目录：
+## 目录
 
 ```text
-api/        HTTP接口
-ai/         意图、字段提取、模型适配与编排
-tools/      统一工具注册和调用日志
-services/   权限、推荐规则和种子数据
-models/     SQLAlchemy实体
-schemas/    Pydantic请求模型
-database/   异步数据库会话
-tests/      API与规则测试
+server/
+├── api/             HTTP 路由
+├── ai/              Provider、意图、记忆、RAG 与编排
+├── tools/           业务工具与注册表
+├── services/        认证、推荐、订单、练习等业务服务
+├── models/          SQLAlchemy 实体
+├── schemas/         Pydantic 请求与响应模型
+├── database/        异步数据库会话
+├── alembic/         0001/0002 增量迁移
+├── knowledge/       RAG Markdown/JSON 资料
+├── tests/           API、规则和 AI 全链路测试
+├── .env.example     无密钥配置模板
+└── main.py          FastAPI 入口
 ```
 
-测试：
+## 环境配置
 
 ```powershell
-python -m pytest -q
-```
-
-MySQL启动：
-
-```powershell
+cd D:\ruanjianshixun\MyApplication5
+python -m venv --system-site-packages .venv
+.\.venv\Scripts\python.exe -m pip install -r server\requirements.txt
 Copy-Item server\.env.example server\.env
-# 在 server/.env 中填写数据库密码
-.\.venv\Scripts\python.exe -m alembic upgrade head
-.\.venv\Scripts\python.exe -m uvicorn server.main:app --reload
 ```
 
-不要把真实数据库密码写入 `.env.example` 或提交到Git。测试配置会在导入后端模块前覆盖数据库地址，避免测试中的 `drop_all()` 操作影响MySQL。
+在 `server/.env` 中填写本机数据库账号、JWT Secret 和可选的 DeepSeek Key。不要把真实密码或 Key 写入 `.env.example` 或提交到 Git。
 
-安全约束：密码使用带随机盐的PBKDF2-SHA256；受保护接口使用24小时JWT；家庭与学生资源访问均执行服务端授权检查；真实密钥只能写入未提交的 `server/.env`。
+## 数据库与启动
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+启动后访问：
+
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/api/health`
+- `http://127.0.0.1:8000/api/ai/health`
+
+应用会安全补充课程、试卷、题目和知识资料种子数据，不覆盖已有用户业务数据。
+
+## 测试
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+测试配置会在导入应用前强制覆盖为 SQLite + Mock Provider，不会清理 MySQL 开发数据，也不会调用真实 DeepSeek。最近一次完整结果为 17 项通过。
+
+## 安全约束
+
+- 密码使用随机盐 PBKDF2-SHA256 哈希。
+- 受保护接口使用默认 24 小时 JWT。
+- 家庭、学生、会话、任务和学习记录均执行服务端授权检查。
+- AI 日志只记录 requestId、sessionId、意图、工具、耗时、Provider 和错误码等必要信息。
+- 模型不能覆盖数据库返回的 ID、价格、成绩和状态。
+- 真实密钥只允许位于未提交的 `server/.env` 或进程环境变量。
+
+完整接口和 AI 说明参见 [API 文档](../docs/API.md) 与 [AI 运行说明](README_AI.md)。

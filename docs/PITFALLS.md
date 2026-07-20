@@ -1,14 +1,41 @@
 # 踩坑复盘
 
-- API 24 Navigation类型定义允许 `unknown`，但工程严格规则禁止显式 `unknown`；PageMap改用SDK兼容的 `Object`，只在详情路由做明确转换。
-- ArkTS不允许无类型对象字面量；HTTP Header改为显式类。
-- 模拟器中的 `127.0.0.1` 指向模拟器自身，联调时要填写电脑局域网IP。
-- `promptAction.showToast` 在API 24显示弃用警告但仍可编译，后续可迁移到UIContext提示接口。
-- CoreSpeechKit/CoreVisionKit存在SDK类型不代表模拟器具备系统能力，必须使用 `canIUse` 和真机测试。
-- 云端任务同步不是鸿蒙原生分布式流转，答辩时要明确区分。
-- FastAPI热重载期间 `create_all()` 可能先建立新模型表，但Alembic版本尚未更新；迁移需要识别完整的半迁移状态，不能删除业务数据。
-- SSE失败后的普通请求必须复用相同 `clientMessageId`，否则订单或学习计划可能重复创建。
-- 大模型只生成解释，业务ID、价格、分数、状态和统计必须来自工具与数据库。
-- 发送到聊天或截图中的Key应立即撤销；自动化测试强制Mock，避免误耗额度。
-- 当前环境的SQLAlchemy 2.0.34与asyncmy 0.2.11在 `pool_pre_ping` 上存在方法签名兼容问题；MySQL连接池改用 `pool_recycle=1800`，避免启动失败和长期复用空闲连接。
-- 后端测试会执行 `drop_all()`，必须在导入后端模块前将数据库地址覆盖为测试SQLite，禁止直接对开发MySQL运行该测试夹具。
+## HarmonyOS 与 ArkTS
+
+- API 24 Navigation 类型定义允许 `unknown`，但工程严格规则不接受显式 `unknown`；`PageMap` 使用 SDK 兼容的 `Object`，只在具体路由中转换为明确参数类型。
+- ArkTS 对无类型对象字面量、联合类型、索引访问和回调引用检查较严格；网络 Header、路由参数和卡片数据都应声明明确接口。
+- 应用只能保留一个根 `Navigation`。四个主页面复用 `MainTabBar`，子页面只使用 `NavDestination`，否则会出现重复底部导航或返回栈异常。
+- 大型首页和个人中心应拆分组件并集中 Mock 数据；把所有布局和数据写在单个页面中会降低可维护性，也更容易触发 ArkTSCheck 定位困难。
+- `promptAction.showToast` 在 API 24 会出现弃用警告但仍可编译，后续可逐步迁移至 UIContext 提示接口。
+
+## 网络与后端联调
+
+- 模拟器/真机中的 `127.0.0.1` 指向设备自身。鸿蒙端必须填写电脑当前局域网 IPv4，并让 FastAPI 监听 `0.0.0.0`。
+- 电脑切换 Wi-Fi、热点或 DHCP 重新分配后，IP 会变化；只需修改 `entry/src/main/ets/common/AppConfig.ets` 的 `API_BASE_URL`，重新构建并安装。
+- 新接口持续返回 404 时，不要只修改前端：先检查 Uvicorn 启动目录、导入的 `server.main:app`、实际 OpenAPI 文档和热重载进程。旧进程或错误工作目录会导致已有代码未被加载。
+- 后端不可用时，首页和个人中心可回退 Mock；AI 对话不能伪装成真实成功，应保留用户消息并显示明确的重试入口。
+
+## AI、SSE 与消息状态
+
+- SSE 首段失败后的普通请求必须复用同一个 `clientMessageId`，否则订单或学习计划可能重复创建。
+- 已收到 `delta` 后连接中断时不能自动重新提交业务请求；应保留部分内容并让用户主动重试。
+- cards、sources、错误、fallback 和流式状态必须绑定具体 AI 消息，不能放在页面全局变量中，否则历史回复会显示错误的卡片或来源。
+- 大模型只生成解释；业务 ID、价格、分数、状态和统计必须来自工具与数据库，并在输出前再次校验。
+- 轻量 Markdown 解析应采用安全白名单。未闭合粗体或不支持的 HTML/代码块按普通文本处理，不执行任意内容。
+- 未绑定学生不代表 AI 完全不可用：普通教育问答可以继续；课程推荐、报告和计划等依赖档案的请求才需要建档引导。
+
+## 数据库与安全
+
+- FastAPI 热重载期间 `create_all()` 可能建立新模型表，但 Alembic 版本尚未更新；迁移需识别半迁移状态，不能通过删库解决。
+- 当前依赖组合在 `pool_pre_ping` 上曾出现 asyncmy 方法签名兼容问题，连接池使用 `pool_recycle=1800` 降低空闲连接失效风险。
+- 后端测试夹具会执行建表和清理操作，必须在导入应用模块前覆盖为测试 SQLite，禁止对开发 MySQL 直接运行该夹具。
+- 真实 API Key、JWT Secret 和数据库密码只能写入 `server/.env` 或环境变量；发到聊天、截图或提交历史中的 Key 必须撤销。
+- 自动化测试强制 Mock Provider，既避免消耗额度，也保证测试结果稳定可复现。
+- 更新后端依赖后必须在当前虚拟环境重新执行 `pip install -r server/requirements.txt`；旧 `.venv` 不会自动获得新增的 `openai` 等依赖。
+
+## 设备能力与验收边界
+
+- SDK 中存在 `CoreSpeechKit/CoreVisionKit` 类型并不代表模拟器具备能力；必须使用 `canIUse`，并在目标真机验证权限、识别、播报和 OCR。
+- OCR 对复杂数学公式的准确率有限，第一版应允许用户确认和修改，不能自动将未经确认的内容入库。
+- 云端账号与任务同步不等于 HarmonyOS 原生分布式流转，答辩材料中应明确区分。
+- 命令行 HAP 构建成功不等于真机一定可安装；签名、设备 API、网络和权限仍需单独验收。
