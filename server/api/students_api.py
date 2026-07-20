@@ -6,9 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
 from server.models import StudentProfile, StudentSubjectProfile, User, WrongQuestion
-from server.schemas import StudentCreate, StudentUpdate, WrongQuestionMasteryUpdate
+from server.schemas import StudentCreate, StudentUpdate, WrongQuestionMasteryUpdate, WrongQuestionTrainingSubmit
 from server.services.access_service import ensure_student_access, get_user_family_id
-from server.services.learning_service import learning_report, wrong_question_list
+from server.services.learning_service import (
+    learning_report,
+    submit_wrong_question_training,
+    wrong_question_list,
+    wrong_question_training,
+)
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
@@ -18,7 +23,7 @@ router = APIRouter(prefix="/students", tags=["students"])
 async def serialize_student(db: AsyncSession, profile: StudentProfile) -> dict:
     subjects = list((await db.scalars(select(StudentSubjectProfile).where(
         StudentSubjectProfile.student_profile_id == profile.id
-    ))).all())
+    ).order_by(StudentSubjectProfile.updated_at.desc(), StudentSubjectProfile.id.desc()))).all())
     return {
         "id": profile.id, "name": profile.name, "grade": profile.grade,
         "learningGoal": profile.learning_goal, "weeklyStudyMinutes": profile.weekly_study_minutes,
@@ -98,6 +103,26 @@ async def update_wrong_question(
     row.mastered = payload.mastered
     await db.commit()
     return ok({"id": row.id, "mastered": row.mastered}, "错题状态已更新")
+
+
+@router.get("/{student_id}/wrong-questions/{wrong_question_id}/training")
+async def get_wrong_question_training(
+    student_id: int, wrong_question_id: int,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    return ok(await wrong_question_training(db, user, student_id, wrong_question_id))
+
+
+@router.post("/{student_id}/wrong-questions/{wrong_question_id}/training/submit")
+async def submit_wrong_question_retest(
+    student_id: int, wrong_question_id: int, payload: WrongQuestionTrainingSubmit,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    result = await submit_wrong_question_training(
+        db, user, student_id, wrong_question_id, payload.selected_index
+    )
+    await db.commit()
+    return ok(result, "复测完成")
 
 
 @router.get("/{student_id}/learning-report")

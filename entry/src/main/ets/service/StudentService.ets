@@ -30,6 +30,19 @@ class StudentSaveRequest {
 }
 
 export class StudentService {
+  private static mockFallbackUsed: boolean = false;
+
+  private static canFallback(error: Object): boolean {
+    const message: string = `${error}`;
+    return !message.includes('HTTP 400') && !message.includes('HTTP 401') &&
+      !message.includes('HTTP 403') && !message.includes('HTTP 404') &&
+      !message.includes('HTTP 409') && !message.includes('HTTP 422');
+  }
+
+  static isUsingMockFallback(): boolean {
+    return AppConfig.USE_MOCK_DATA || StudentService.mockFallbackUsed;
+  }
+
   private static convert(data: StudentProfileResponse): StudentProfile {
     const subject: StudentSubjectItem = data.subjects.length > 0 ? data.subjects[0] : {
       subject: '', recentScore: 0, weakPoints: []
@@ -48,16 +61,27 @@ export class StudentService {
   }
 
   static async getProfile(studentProfileId: number): Promise<StudentProfile> {
-    if (AppConfig.USE_MOCK_DATA) return MockDataService.getStudentProfile();
-    const data: StudentProfileResponse =
-      (await HttpClient.get<StudentProfileResponse>(`/students/${studentProfileId}`)).data;
-    return StudentService.convert(data);
+    if (AppConfig.USE_MOCK_DATA) {
+      StudentService.mockFallbackUsed = true;
+      return MockDataService.getStudentProfile();
+    }
+    try {
+      const data: StudentProfileResponse =
+        (await HttpClient.get<StudentProfileResponse>(`/students/${studentProfileId}`)).data;
+      StudentService.mockFallbackUsed = false;
+      return StudentService.convert(data);
+    } catch (error) {
+      if (!StudentService.canFallback(error as Object)) throw new Error(`${error}`);
+      console.warn(`学生档案接口不可用，使用演示数据: ${JSON.stringify(error)}`);
+      StudentService.mockFallbackUsed = true;
+      return MockDataService.getStudentProfile();
+    }
   }
 
   static async saveProfile(profile: StudentProfile): Promise<StudentProfile> {
     if (AppConfig.USE_MOCK_DATA) {
-      profile.id = profile.id > 0 ? profile.id : 1;
-      return profile;
+      StudentService.mockFallbackUsed = true;
+      return MockDataService.saveStudentProfile(profile);
     }
     const request: StudentSaveRequest = new StudentSaveRequest();
     request.name = profile.name;
@@ -67,9 +91,17 @@ export class StudentService {
     request.weak_points = profile.weakPoints;
     request.learning_goal = profile.learningGoal;
     request.weekly_study_minutes = profile.weeklyStudyMinutes;
-    const data: StudentProfileResponse = profile.id > 0
-      ? (await HttpClient.put<StudentProfileResponse>(`/students/${profile.id}`, request)).data
-      : (await HttpClient.post<StudentProfileResponse>('/students', request)).data;
-    return StudentService.convert(data);
+    try {
+      const data: StudentProfileResponse = profile.id > 0
+        ? (await HttpClient.put<StudentProfileResponse>(`/students/${profile.id}`, request)).data
+        : (await HttpClient.post<StudentProfileResponse>('/students', request)).data;
+      StudentService.mockFallbackUsed = false;
+      return StudentService.convert(data);
+    } catch (error) {
+      if (!StudentService.canFallback(error as Object)) throw new Error(`${error}`);
+      console.warn(`学生档案保存接口不可用，保存到运行期演示数据: ${JSON.stringify(error)}`);
+      StudentService.mockFallbackUsed = true;
+      return MockDataService.saveStudentProfile(profile);
+    }
   }
 }

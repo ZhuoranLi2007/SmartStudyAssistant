@@ -1,4 +1,4 @@
-import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, OrderRouteParam, PlatformInfoRouteParam } from '../common/AppRoutes';
+import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, OrderRouteParam, PlatformInfoRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
 import { AiAssistantPage } from './AiAssistantPage';
 import { CourseDetailPage } from './CourseDetailPage';
 import { CourseRecommendationPage } from './CourseRecommendationPage';
@@ -22,6 +22,7 @@ import { SettingsPage } from './SettingsPage';
 import { WrongQuestionsPage } from './WrongQuestionsPage';
 import { OnlinePracticePage } from './OnlinePracticePage';
 import { OrderDetailPage } from './OrderDetailPage';
+import { WrongQuestionTrainingPage } from './WrongQuestionTrainingPage';
 
 function orderFilterFromParam(param: Object): string {
   if (param instanceof OrderRouteParam) return param.status;
@@ -35,6 +36,21 @@ function infoTypeFromParam(param: Object): string {
 
 function paperIdFromPracticeParam(param: Object): number {
   if (param instanceof OnlinePracticeRouteParam) return param.paperId;
+  return 0;
+}
+
+function taskIdFromPracticeParam(param: Object): number {
+  if (param instanceof OnlinePracticeRouteParam) return param.taskId;
+  return 0;
+}
+
+function wrongQuestionIdFromParam(param: Object): number {
+  if (param instanceof WrongQuestionTrainingRouteParam) return param.wrongQuestionId;
+  return 0;
+}
+
+function wrongQuestionTaskIdFromParam(param: Object): number {
+  if (param instanceof WrongQuestionTrainingRouteParam) return param.taskId;
   return 0;
 }
 
@@ -83,8 +99,13 @@ export function PageMap(name: string, param: Object) {
   } else if (name === AppRoutes.PLATFORM_INFO) {
     PlatformInfoPage({ infoType: infoTypeFromParam(param) })
   } else if (name === AppRoutes.ONLINE_PRACTICE) {
-    OnlinePracticePage({ paperId: paperIdFromPracticeParam(param) })
+    OnlinePracticePage({ paperId: paperIdFromPracticeParam(param), taskId: taskIdFromPracticeParam(param) })
   } else if (name === AppRoutes.ORDER_DETAIL) {
     OrderDetailPage({ orderId: (param as IdRouteParam).id })
+  } else if (name === AppRoutes.WRONG_QUESTION_TRAINING) {
+    WrongQuestionTrainingPage({
+      wrongQuestionId: wrongQuestionIdFromParam(param),
+      taskId: wrongQuestionTaskIdFromParam(param)
+    })
   }
 }

@@ -37,51 +37,74 @@ export struct ChatMessageBubble {
   private assistantMessage() {
     Row({ space: 9 }) {
       ChatAvatar({ role: ChatRole.ASSISTANT, avatarSize: 40 })
-      Column({ space: 6 }) {
-        Text('智学助手').fontSize(11).fontColor('#667085').width('100%')
-        Column({ space: 10 }) {
-          if (this.message.isStreaming && !this.message.content) {
-            TypingIndicator()
-          } else if (this.message.content) {
-            MarkdownRenderer({ content: this.message.content })
+      Row() {
+        Column({ space: 6 }) {
+          Text('智学助手').fontSize(11).fontColor('#667085').width('100%')
+          Column({ space: 10 }) {
+            if (this.message.isStreaming && !this.message.content) {
+              TypingIndicator()
+            } else if (this.message.content) {
+              MarkdownRenderer({ content: this.message.content })
+            }
+            this.structuredCards()
+            ChatSourceList({ sources: this.message.sources })
+            if (this.message.fallbackUsed) {
+              Text('本地演示回答').fontSize(9).fontColor('#B54708').padding({ left: 7, right: 7, top: 3, bottom: 3 })
+                .backgroundColor('#FFF4E5').borderRadius(7).alignSelf(ItemAlign.Start)
+            }
+            if (this.message.errorMessage) {
+              Row({ space: 8 }) {
+                Text(this.message.errorMessage).fontSize(11).fontColor('#B42318').layoutWeight(1)
+                Text('重试').fontSize(12).fontColor('#2F6BFF').fontWeight(FontWeight.Medium)
+                  .onClick(() => this.onRetry(this.message))
+              }.padding(8).width('100%').backgroundColor('#FEF3F2').borderRadius(8)
+            }
+            if (!this.message.isStreaming && this.message.content) {
+              Row() {
+                Text('朗读').fontSize(10).fontColor('#667085').onClick(() => this.onRead(this.message.content))
+              }.width('100%')
+            }
           }
-          this.structuredCards()
-          ChatSourceList({ sources: this.message.sources })
-          if (this.message.fallbackUsed) {
-            Text('本地演示回答').fontSize(9).fontColor('#B54708').padding({ left: 7, right: 7, top: 3, bottom: 3 })
-              .backgroundColor('#FFF4E5').borderRadius(7).alignSelf(ItemAlign.Start)
-          }
-          if (this.message.errorMessage) {
-            Row() {
-              Text(this.message.errorMessage).fontSize(11).fontColor('#B42318').layoutWeight(1)
-              Text('重试').fontSize(12).fontColor('#2F6BFF').fontWeight(FontWeight.Medium)
-                .onClick(() => this.onRetry(this.message))
-            }.padding(8).width('100%').backgroundColor('#FEF3F2').borderRadius(8)
-          }
-          if (!this.message.isStreaming && this.message.content) {
-            Row() {
-              Text('朗读').fontSize(10).fontColor('#667085').onClick(() => this.onRead(this.message.content))
-            }.width('100%')
-          }
+          .padding(12)
+          .width('100%')
+          .backgroundColor(Color.White)
+          .borderRadius(16)
+          .border({ width: 1, color: '#EDF0F6' })
         }
-        .padding(12).width('100%').backgroundColor(Color.White).borderRadius(16)
-        .border({ width: 1, color: '#EDF0F6' })
-      }.constraintSize({ maxWidth: '82%' }).alignItems(HorizontalAlign.Start)
-      Blank().layoutWeight(1)
-    }.width('100%').alignItems(VerticalAlign.Top)
+        .constraintSize({ maxWidth: '84%' })
+        .alignItems(HorizontalAlign.Start)
+        Blank().layoutWeight(1)
+      }.layoutWeight(1).alignItems(VerticalAlign.Top)
+    }
+    .width('100%')
+    .padding({ left: 3, right: 3 })
+    .alignItems(VerticalAlign.Top)
   }
 
   @Builder
   private userMessage() {
     Row({ space: 9 }) {
-      Blank().layoutWeight(1)
-      Column({ space: 5 }) {
-        Text('我').fontSize(11).fontColor('#667085').width('100%').textAlign(TextAlign.End)
-        Text(this.message.content).fontSize(15).fontColor(Color.White).lineHeight(22)
-          .padding(12).backgroundColor('#356DF3').borderRadius(16).constraintSize({ maxWidth: '78%' })
-      }.alignItems(HorizontalAlign.End)
+      Row() {
+        Blank().layoutWeight(1)
+        Column({ space: 5 }) {
+          Text('我').fontSize(11).fontColor('#667085').width('100%').textAlign(TextAlign.End)
+          Text(this.message.content)
+            .fontSize(15)
+            .fontColor(Color.White)
+            .lineHeight(22)
+            .padding(12)
+            .width('100%')
+            .backgroundColor('#356DF3')
+            .borderRadius(16)
+        }
+        .constraintSize({ maxWidth: '84%' })
+        .alignItems(HorizontalAlign.End)
+      }.layoutWeight(1).alignItems(VerticalAlign.Top)
       ChatAvatar({ role: ChatRole.USER, avatarSize: 38 })
-    }.width('100%').alignItems(VerticalAlign.Top)
+    }
+    .width('100%')
+    .padding({ left: 3, right: 3 })
+    .alignItems(VerticalAlign.Top)
   }
 
   build() {

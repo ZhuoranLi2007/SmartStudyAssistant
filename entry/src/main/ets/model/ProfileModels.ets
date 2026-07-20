@@ -88,6 +88,7 @@ export interface WrongQuestion {
   correctAnswer: string;
   explanation: string;
   mastered: boolean;
+  wrongCount: number;
 }
 
 export interface LearningReport {

@@ -68,10 +68,21 @@ async def get_paper(paper_id: int, db: AsyncSession = Depends(get_db), _user: Us
 @router.post("/analyze")
 async def analyze(payload: PaperAnalyzeRequest, _user: User = Depends(get_current_user)):
     text = payload.text
-    subject = "数学" if any(word in text for word in ("千米", "计算", "百分", "方程")) else "英语"
-    candidates = ["应用题", "百分数", "几何"] if subject == "数学" else ["词汇", "语法", "阅读"]
+    if any(word in text for word in ("千米", "计算", "百分", "方程", "面积", "分数")):
+        subject = "数学"
+    elif any(word in text.lower() for word in ("english", "choose", "read", "word", "grammar")):
+        subject = "英语"
+    else:
+        subject = "语文"
+    if subject == "数学":
+        candidates = ["应用题", "百分数", "几何", "计算"]
+    elif subject == "英语":
+        candidates = ["词汇", "语法", "阅读", "听力"]
+    else:
+        candidates = ["拼音", "识字写字", "阅读理解", "古诗文", "作文"]
     points = [point for point in candidates if point in text]
-    if not points: points = ["应用题" if subject == "数学" else "阅读"]
+    if not points:
+        points = ["应用题" if subject == "数学" else "阅读理解" if subject == "语文" else "阅读"]
     difficulty = "较难" if len(text) > 1000 else "中等" if len(text) > 200 else "基础"
     return ok({"subject": subject, "grade": payload.grade or "待确认", "knowledgePoints": points,
                "difficulty": difficulty, "needsConfirmation": True})

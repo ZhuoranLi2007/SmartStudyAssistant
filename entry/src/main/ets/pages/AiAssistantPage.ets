@@ -19,6 +19,8 @@ import {
 } from '../model/AiModels';
 import { AiService } from '../service/AiService';
 import { ChatViewModel } from '../viewModel/ChatViewModel';
+import { StudentProfile } from '../model/DomainModels';
+import { StudentService } from '../service/StudentService';
 
 @Component
 export struct AiAssistantPage {
@@ -31,10 +33,12 @@ export struct AiAssistantPage {
   @State isRestoring: boolean = true;
   @State sessionId: string = '';
   @State currentIntent: string = '';
+  @State linkedStudentText: string = '';
   private messageScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     void this.restoreHistory();
+    void this.loadLinkedStudent();
   }
 
   private context(): common.UIAbilityContext {
@@ -50,6 +54,7 @@ export struct AiAssistantPage {
   private copyMessage(message: ChatMessage): ChatMessage {
     return {
       id: message.id,
+      revision: message.revision,
       role: message.role,
       content: message.content,
       createdAt: message.createdAt,
@@ -66,12 +71,34 @@ export struct AiAssistantPage {
   }
 
   private replaceMessage(updated: ChatMessage): void {
+    updated.revision++;
     const next: ChatMessage[] = [];
     for (let index: number = 0; index < this.messages.length; index++) {
       next.push(this.messages[index].id === updated.id ? updated : this.messages[index]);
     }
     this.messages = next;
     this.scrollToBottom();
+  }
+
+  private currentMessage(messageId: string): ChatMessage | null {
+    for (let index: number = 0; index < this.messages.length; index++) {
+      if (this.messages[index].id === messageId) return this.messages[index];
+    }
+    return null;
+  }
+
+  private async loadLinkedStudent(): Promise<void> {
+    if (this.studentProfileId <= 0) {
+      this.linkedStudentText = '';
+      return;
+    }
+    try {
+      const profile: StudentProfile = await StudentService.getProfile(this.studentProfileId);
+      this.linkedStudentText = `${profile.name} · ${profile.grade} · ${profile.subject}`;
+    } catch (error) {
+      this.linkedStudentText = '';
+      console.warn(`AI关联学生档案加载失败: ${JSON.stringify(error)}`);
+    }
   }
 
   private scrollToBottom(): void {
@@ -168,14 +195,15 @@ export struct AiAssistantPage {
       );
       this.sessionId = result.sessionId;
       this.currentIntent = result.intent;
-      const completed: ChatMessage = this.copyMessage(assistantMessage);
-      completed.content = result.answer || result.assistantMessage;
+      const latest: ChatMessage | null = this.currentMessage(assistantId);
+      const completed: ChatMessage = this.copyMessage(latest || assistantMessage);
+      completed.content = (result.answer || result.assistantMessage || '').trim();
       completed.isStreaming = false;
       completed.fallbackUsed = result.fallbackUsed;
       completed.intent = result.intent;
       completed.cards = result.cards || [];
       completed.sources = result.sources || [];
-      completed.errorMessage = '';
+      completed.errorMessage = completed.content ? '' : '智能服务未返回正文，可点击重试。';
       completed.retryQuestion = question;
       this.replaceMessage(completed);
     } catch (error) {
@@ -191,6 +219,13 @@ export struct AiAssistantPage {
       console.error(`AI 对话失败: ${JSON.stringify(error)}`);
     } finally {
       this.isLoading = false;
+      const latest: ChatMessage | null = this.currentMessage(assistantId);
+      if (latest && latest.isStreaming) {
+        const stopped: ChatMessage = this.copyMessage(latest);
+        stopped.isStreaming = false;
+        if (!stopped.content && !stopped.errorMessage) stopped.errorMessage = '回复已结束但没有收到内容，可点击重试。';
+        this.replaceMessage(stopped);
+      }
     }
   }
 
@@ -295,6 +330,12 @@ export struct AiAssistantPage {
               }
             }.width('100%')
             Text('为孩子找到更合适的学习路径').fontSize(12).fontColor('#718096').width('100%')
+            if (this.linkedStudentText) {
+              Text(`已关联：${this.linkedStudentText}`).fontSize(10).fontColor('#2F6BFF').width('100%')
+            } else {
+              Text('尚未关联学生档案，点击前往创建').fontSize(10).fontColor('#B54708').width('100%')
+                .onClick(() => this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, null))
+            }
           }.layoutWeight(1)
           Text('＋ 新会话').fontSize(12).fontColor('#2F6BFF').onClick(() => void this.newConversation())
           Text('清空').fontSize(12).fontColor('#F04438').onClick(() => this.showClearDialog())
@@ -307,7 +348,13 @@ export struct AiAssistantPage {
                 onSelect: (question: string): void => { void this.sendQuestion(question); } })
             }
           }, (item: QuickQuestion) => item.label)
-        }.listDirection(Axis.Horizontal).height(48).padding({ left: 14, right: 14 }).width('100%')
+        }
+        .listDirection(Axis.Horizontal)
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
+        .height(48)
+        .padding({ left: 14, right: 14 })
+        .width('100%')
 
         List({ space: 14, scroller: this.messageScroller }) {
           ForEach(this.messages, (message: ChatMessage) => {
@@ -318,8 +365,12 @@ export struct AiAssistantPage {
                 onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
               })
             }
-          }, (message: ChatMessage) => message.id)
-        }.layoutWeight(1).padding({ left: 13, right: 13, top: 10, bottom: 10 }).width('100%')
+          }, (message: ChatMessage) => `${message.id}-${message.revision}`)
+        }
+        .layoutWeight(1)
+        .padding({ left: 13, right: 13, top: 10, bottom: 10 })
+        .width('100%')
+        .edgeEffect(EdgeEffect.Spring)
 
         ChatInputBar({
           text: $inputText,

@@ -34,7 +34,7 @@ REQUIRED_FIELDS: dict[IntentType, tuple[str, ...]] = {
 CLARIFICATIONS: dict[str, str] = {
     "studentId": "请先选择或创建要分析的学生档案。",
     "grade": "孩子当前是几年级？",
-    "subject": "需要咨询数学还是英语？",
+    "subject": "需要咨询语文、数学还是英语？",
     "score": "最近一次考试成绩大约是多少分？",
     "weakPoints": "主要薄弱知识点是什么？",
     "learningGoal": "学习目标是巩固基础、提高成绩还是竞赛拓展？",

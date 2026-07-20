@@ -202,3 +202,35 @@ async def test_paper_attempt_creates_real_learning_report(client):
     report = await client.get(f"/api/students/{student['id']}/learning-report", headers=auth)
     assert report.status_code == 200
     assert report.json()["data"]["completedPaperCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_general_chat_refreshes_latest_student_profile_in_same_session(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+    student = await create_student(client, parent["accessToken"])
+
+    first = await client.post("/api/ai/chat", headers=auth, json={
+        "studentProfileId": student["id"], "clientMessageId": str(uuid.uuid4()),
+        "message": "请结合我的具体情况给一些学习建议",
+    })
+    assert first.status_code == 200, first.text
+    first_data = first.json()["data"]
+    assert "AI测试学生" in first_data["answer"]
+    assert "82" in first_data["answer"]
+    assert "应用题" in first_data["answer"]
+
+    updated = await client.put(f"/api/students/{student['id']}", headers=auth, json={
+        "name": "AI测试学生", "grade": "六年级", "subject": "数学", "recent_score": 91,
+        "weak_points": ["百分数"], "learning_goal": "冲刺优秀", "weekly_study_minutes": 260,
+    })
+    assert updated.status_code == 200, updated.text
+
+    second = await client.post("/api/ai/chat", headers=auth, json={
+        "sessionId": first_data["sessionId"], "studentProfileId": student["id"],
+        "clientMessageId": str(uuid.uuid4()), "message": "现在再结合我的具体情况给建议",
+    })
+    assert second.status_code == 200, second.text
+    answer = second.json()["data"]["answer"]
+    assert "91" in answer
+    assert "百分数" in answer

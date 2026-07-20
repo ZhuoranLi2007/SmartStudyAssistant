@@ -12,15 +12,41 @@ import { PaperAnalysis, PaperService } from '../service/PaperService';
 export struct PaperResourcePage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @State searchText: string = '';
+  @State grade: string = '全部';
   @State subject: string = '全部';
+  @State allPapers: Paper[] = MockDataService.getPapers();
   @State papers: Paper[] = MockDataService.getPapers();
   @State ocrText: string = '';
   @State ocrSuggestion: string = '';
   @State isRecognizing: boolean = false;
+  @State usingMockData: boolean = true;
+
+  aboutToAppear(): void {
+    void this.loadPapers();
+  }
+
+  private async loadPapers(): Promise<void> {
+    if (AppConfig.USE_MOCK_DATA) {
+      this.allPapers = MockDataService.getPapers();
+      this.usingMockData = true;
+      this.refresh();
+      return;
+    }
+    try {
+      this.allPapers = await PaperService.getPapers();
+      this.usingMockData = false;
+    } catch (error) {
+      console.warn(`试卷目录加载失败，使用演示数据: ${JSON.stringify(error)}`);
+      this.allPapers = MockDataService.getPapers();
+      this.usingMockData = true;
+    }
+    this.refresh();
+  }
 
   private refresh(): void {
     const keyword: string = this.searchText.trim();
-    this.papers = MockDataService.getPapers().filter((paper: Paper) =>
+    this.papers = this.allPapers.filter((paper: Paper) =>
+      (this.grade === '全部' || paper.grade === this.grade) &&
       (this.subject === '全部' || paper.subject === this.subject) &&
       (!keyword || paper.name.includes(keyword) || paper.knowledgePoints.join('、').includes(keyword)));
   }
@@ -63,11 +89,22 @@ export struct PaperResourcePage {
         Column({ space: 10 }) {
           Search({ placeholder: '搜索试卷或知识点', value: this.searchText })
             .onChange((value: string) => { this.searchText = value; this.refresh(); })
-          Row({ space: 8 }) {
-            Button('全部').backgroundColor(this.subject === '全部' ? '#2F6BFF' : '#D0D5DD').onClick(() => { this.subject = '全部'; this.refresh(); })
-            Button('数学').backgroundColor(this.subject === '数学' ? '#2F6BFF' : '#D0D5DD').onClick(() => { this.subject = '数学'; this.refresh(); })
-            Button('英语').backgroundColor(this.subject === '英语' ? '#2F6BFF' : '#D0D5DD').onClick(() => { this.subject = '英语'; this.refresh(); })
-            Button(this.isRecognizing ? '识别中...' : '上传图片 OCR').layoutWeight(1).enabled(!this.isRecognizing).backgroundColor('#7A5AF8').onClick(() => void this.selectAndRecognize())
+          Scroll() { Row({ space: 8 }) {
+            ForEach(['全部', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级'], (item: string) => {
+              Button(item).fontSize(12).height(34).backgroundColor(this.grade === item ? '#2F6BFF' : '#D0D5DD')
+                .onClick(() => { this.grade = item; this.refresh(); })
+            }, (item: string) => item)
+          } }.scrollable(ScrollDirection.Horizontal)
+          Scroll() { Row({ space: 8 }) {
+            ForEach(['全部', '语文', '数学', '英语'], (item: string) => {
+              Button(item).fontSize(12).height(34).backgroundColor(this.subject === item ? '#2F6BFF' : '#D0D5DD')
+                .onClick(() => { this.subject = item; this.refresh(); })
+            }, (item: string) => item)
+            Button(this.isRecognizing ? '识别中...' : '上传图片 OCR').enabled(!this.isRecognizing)
+              .height(34).backgroundColor('#7A5AF8').onClick(() => void this.selectAndRecognize())
+          } }.scrollable(ScrollDirection.Horizontal)
+          if (this.usingMockData) {
+            Text('当前试卷目录为演示数据').fontSize(11).fontColor('#B54708').width('100%')
           }
           if (this.ocrText) {
             Column({ space: 8 }) {
