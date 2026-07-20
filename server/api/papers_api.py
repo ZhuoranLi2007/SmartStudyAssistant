@@ -3,8 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
-from server.models import Paper, User
-from server.schemas import PaperAnalyzeRequest
+from server.models import Paper, PaperQuestion, User
+from server.schemas import PaperAnalyzeRequest, PracticeAttemptCreate
+from server.services.learning_service import submit_attempt
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
@@ -28,6 +29,33 @@ async def list_papers(
     if difficulty: statement = statement.where(Paper.difficulty == difficulty)
     rows = list((await db.scalars(statement.order_by(Paper.id))).all())
     return ok([paper_data(row) for row in rows])
+
+
+@router.get("/{paper_id}/questions")
+async def paper_questions(paper_id: int, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
+    paper = await db.get(Paper, paper_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="试卷不存在")
+    rows = list((await db.scalars(select(PaperQuestion).where(
+        PaperQuestion.paper_id == paper_id
+    ).order_by(PaperQuestion.sequence))).all())
+    return ok({"paper": paper_data(paper), "questions": [{
+        "id": row.id, "sequence": row.sequence, "stem": row.stem,
+        "options": row.options_json, "knowledgePoint": row.knowledge_point,
+    } for row in rows]})
+
+
+@router.post("/{paper_id}/attempts")
+async def create_attempt(
+    paper_id: int, payload: PracticeAttemptCreate,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    result = await submit_attempt(
+        db, user, payload.student_profile_id, paper_id,
+        [(item.question_id, item.selected_index) for item in payload.answers],
+    )
+    await db.commit()
+    return ok(result, "答题结果已保存")
 
 
 @router.get("/{paper_id}")

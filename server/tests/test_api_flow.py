@@ -37,7 +37,7 @@ async def test_parent_student_recommendation_and_chat(client):
     assert chat.status_code == 200, chat.text
     result = chat.json()["data"]
     assert result["intent"] == "COURSE_RECOMMENDATION"
-    assert result["toolCalls"][0]["name"] == "CourseRecommendationTool"
+    assert "course_recommend_tool" in [item["name"] for item in result["toolCalls"]]
     assert "中等提升型" in result["assistantMessage"]
 
 

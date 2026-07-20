@@ -1,4 +1,12 @@
+"""旧模型客户端的兼容导出。
+
+新代码统一使用 ProviderRouter；保留这些类是为了避免旧导入立即失效。
+"""
+
+import json
 from abc import ABC, abstractmethod
+
+from server.ai.providers import ProviderRouter
 
 
 class ModelClient(ABC):
@@ -11,14 +19,15 @@ class MockModelClient(ModelClient):
     async def compose(self, intent: str, tool_result: dict) -> str:
         recommendation = tool_result.get("recommendation")
         if recommendation:
-            courses = "、".join(item["name"] for item in recommendation.get("courses", [])) or "暂无匹配课程"
-            papers = "、".join(item["name"] for item in recommendation.get("papers", [])) or "暂无匹配试卷"
-            return f"{recommendation['explanation']}\n推荐课程：{courses}\n配套试卷：{papers}"
-        return "我可以帮助分析学情、推荐课程和试卷。请先完善学生档案，或告诉我年级、科目、成绩、薄弱点和学习目标。"
+            return str(recommendation.get("explanation") or "已完成课程推荐。")
+        return "我可以帮助分析学情、推荐课程和试卷。"
 
 
 class OpenAICompatibleModelClient(ModelClient):
-    """Reserved provider seam. It is intentionally disabled until a real key is supplied."""
-
     async def compose(self, intent: str, tool_result: dict) -> str:
-        raise RuntimeError("真实模型尚未启用，请设置 AI_PROVIDER 和 API Key")
+        fallback = "已根据业务数据完成处理，请查看结构化结果。"
+        result = await ProviderRouter().complete([
+            {"role": "system", "content": "请根据业务工具结果生成简洁教育建议，不得修改事实字段。"},
+            {"role": "user", "content": json.dumps({"intent": intent, "toolResult": tool_result}, ensure_ascii=False)},
+        ], fallback_content=fallback)
+        return result.content

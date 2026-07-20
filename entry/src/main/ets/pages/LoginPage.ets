@@ -25,26 +25,29 @@ export struct LoginPage {
       let userId: number = 1;
       let username: string = this.account;
       let role: string = this.account.includes('student') ? 'student' : 'parent';
+      let studentProfileId: number = 0;
       if (AppConfig.USE_MOCK_DATA) {
         await new Promise<void>((resolve: () => void) => setTimeout(resolve, 350));
+        studentProfileId = 1;
       } else {
         const result: LoginResult = await AuthService.login(this.account, this.password);
         token = result.accessToken;
         userId = result.user.id;
         username = result.user.username;
         role = result.user.role;
+        studentProfileId = result.studentProfileId;
       }
       AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, token);
       AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, userId);
       AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, username);
       AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, role);
-      AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, 1);
+      AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, studentProfileId);
       const snapshot = new SessionSnapshot();
       snapshot.token = token;
       snapshot.userId = userId;
       snapshot.username = username;
       snapshot.role = role;
-      snapshot.studentProfileId = 1;
+      snapshot.studentProfileId = studentProfileId;
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       await SessionStorageService.save(context, snapshot);
       this.appPathStack.clear();

@@ -10,6 +10,18 @@ export class AppRoutes {
   static readonly PAPER_DETAIL: string = 'PaperDetailPage';
   static readonly STUDY_PLAN: string = 'StudyPlanPage';
   static readonly PROFILE: string = 'ProfilePage';
+  static readonly MY_COURSES: string = 'MyCoursesPage';
+  static readonly MY_ORDERS: string = 'MyOrdersPage';
+  static readonly MY_FAVORITES: string = 'MyFavoritesPage';
+  static readonly CUSTOMER_SERVICE: string = 'CustomerServicePage';
+  static readonly SETTINGS: string = 'SettingsPage';
+  static readonly WRONG_QUESTIONS: string = 'WrongQuestionsPage';
+  static readonly LEARNING_REPORT: string = 'LearningReportPage';
+  static readonly CUSTOMER_CHAT: string = 'CustomerChatPage';
+  static readonly FEEDBACK: string = 'FeedbackPage';
+  static readonly PLATFORM_INFO: string = 'PlatformInfoPage';
+  static readonly ONLINE_PRACTICE: string = 'OnlinePracticePage';
+  static readonly ORDER_DETAIL: string = 'OrderDetailPage';
 }
 
 export class IdRouteParam {
@@ -17,6 +29,18 @@ export class IdRouteParam {
 }
 
 export class StudentRouteParam {
-  studentProfileId: number = 1;
+  studentProfileId: number = 0;
   sessionId: string = '';
+}
+
+export class OrderRouteParam {
+  status: string = 'ALL';
+}
+
+export class PlatformInfoRouteParam {
+  type: string = 'ABOUT';
+}
+
+export class OnlinePracticeRouteParam {
+  paperId: number = 0;
 }

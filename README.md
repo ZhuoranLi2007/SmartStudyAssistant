@@ -7,7 +7,7 @@
 - HarmonyOS NEXT API 24、ArkTS、ArkUI、统一 Navigation/NavPathStack。
 - 登录注册、首页、学生档案、AI助手、课程、试卷、学习计划、个人中心共11个页面。
 - 12门课程和24份试卷的演示数据，支持筛选、详情和加入计划。
-- FastAPI、SQLAlchemy、SQLite开发数据库、MySQL配置、JWT、PBKDF2密码哈希。
+- FastAPI、SQLAlchemy、MySQL 8.x、Alembic、JWT、PBKDF2密码哈希；自动化测试使用隔离的SQLite数据库。
 - 独立家长/学生账号、家庭隔离、一次性学生绑定码、任务状态同步接口。
 - 六类意图、规则推荐、工具注册、调用日志、多轮会话和SSE兜底端点。
 - CoreSpeechKit语音识别/TTS、PhotoViewPicker与CoreVisionKit OCR，包含能力降级。
@@ -21,10 +21,11 @@ cd D:\ruanjianshixun\MyApplication5
 python -m venv --system-site-packages .venv
 .\.venv\Scripts\python.exe -m pip install -r server\requirements.txt
 Copy-Item server\.env.example server\.env
+.\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe -m uvicorn server.main:app --reload
 ```
 
-浏览器打开 `http://127.0.0.1:8000/docs`。开发数据库首次启动会自动建表并加入12门课程、24份试卷。
+首次启动前需要在 `server/.env` 中填写本机MySQL应用账号密码。浏览器打开 `http://127.0.0.1:8000/docs`；应用启动后会向MySQL加入12门课程和24份试卷样例。
 
 ### 鸿蒙前端
 
@@ -40,21 +41,21 @@ $env:DEVECO_SDK_HOME='C:\Program Files\Huawei\DevEco Studio\sdk'
 & 'C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat' assembleHap --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
 
-## MySQL切换
+## MySQL数据库
 
-当前环境未安装MySQL，MySQL集成尚未实机验收。准备MySQL 8.x后：
+项目默认使用MySQL 8.x。首次部署时使用管理员账号创建数据库：
 
 ```powershell
-mysql -u root -p < server\sql\mysql_init.sql
+Get-Content server\sql\mysql_init.sql | & 'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe' -u root -p
 ```
 
-将 `.env` 的数据库地址改为：
+再创建只拥有 `smartstudy` 数据库权限的应用账号，并在未提交的 `server/.env` 中配置：
 
 ```text
-SMARTSTUDY_DATABASE_URL=mysql+asyncmy://smartstudy:password@127.0.0.1:3306/smartstudy?charset=utf8mb4
+SMARTSTUDY_DATABASE_URL=mysql+asyncmy://smartstudy:your-password@127.0.0.1:3306/smartstudy?charset=utf8mb4
 ```
 
-再执行迁移或启动应用。不要把SQLite测试结果表述为MySQL验收结果。
+当前开发机已完成MySQL 8.0.45迁移、种子数据和注册登录接口冒烟测试。pytest会强制使用 `server/test_smartstudy.db`，不会清空MySQL开发数据。
 
 ## 文档
 

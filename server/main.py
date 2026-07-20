@@ -52,3 +52,10 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 @app.get("/health")
 async def health():
     return {"status": "ok", "environment": settings.environment, "aiProvider": settings.ai_provider}
+
+
+@app.get("/api/health")
+async def api_health():
+    return {"code": 0, "message": "success", "data": {
+        "status": "ok", "environment": settings.environment, "aiProvider": settings.ai_provider,
+    }, "requestId": str(uuid4())}

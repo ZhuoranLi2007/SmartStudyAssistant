@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
-from server.models import Family, FamilyMember, User
+from server.models import Family, FamilyMember, StudentProfile, User
 from server.schemas import LoginRequest, RegisterRequest
 from server.utils.responses import ok
 from server.utils.security import create_access_token, get_current_user, hash_password, verify_password
@@ -16,6 +16,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def user_data(user: User) -> dict:
     return {"id": user.id, "username": user.username, "phone": user.phone, "role": user.role}
+
+
+async def user_student_profile_id(db: AsyncSession, user: User) -> int:
+    if user.role == "student":
+        profile_id = await db.scalar(select(StudentProfile.id).where(StudentProfile.student_user_id == user.id))
+        return int(profile_id or 0)
+    family_id = await db.scalar(select(FamilyMember.family_id).where(FamilyMember.user_id == user.id))
+    if family_id is None:
+        return 0
+    profile_id = await db.scalar(
+        select(StudentProfile.id).where(StudentProfile.family_id == family_id).order_by(StudentProfile.id)
+    )
+    return int(profile_id or 0)
 
 
 @router.post("/register")
@@ -36,7 +49,11 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail="用户名或手机号已存在") from exc
-    return ok({"accessToken": create_access_token(user), "user": user_data(user)}, "注册成功")
+    return ok({
+        "accessToken": create_access_token(user),
+        "user": user_data(user),
+        "studentProfileId": await user_student_profile_id(db, user),
+    }, "注册成功")
 
 
 @router.post("/login")
@@ -44,9 +61,15 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await db.scalar(select(User).where(or_(User.username == payload.account, User.phone == payload.account)))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="账号或密码错误")
-    return ok({"accessToken": create_access_token(user), "user": user_data(user)}, "登录成功")
+    return ok({
+        "accessToken": create_access_token(user),
+        "user": user_data(user),
+        "studentProfileId": await user_student_profile_id(db, user),
+    }, "登录成功")
 
 
 @router.get("/me")
-async def me(user: User = Depends(get_current_user)):
-    return ok(user_data(user))
+async def me(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    data = user_data(user)
+    data["studentProfileId"] = await user_student_profile_id(db, user)
+    return ok(data)

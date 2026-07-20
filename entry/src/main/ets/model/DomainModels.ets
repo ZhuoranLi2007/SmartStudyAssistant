@@ -15,11 +15,6 @@ export enum TaskStatus {
   COMPLETED = '已完成'
 }
 
-export enum ChatRole {
-  USER = 'user',
-  ASSISTANT = 'assistant'
-}
-
 export interface UserInfo {
   id: number;
   username: string;
@@ -73,13 +68,6 @@ export interface StudyTask {
   status: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  role: string;
-  content: string;
-  createTime: string;
-}
-
 export interface RecommendationResult {
   level: string;
   reason: string;
@@ -90,6 +78,7 @@ export interface RecommendationResult {
 export interface LoginResult {
   accessToken: string;
   user: UserInfo;
+  studentProfileId: number;
 }
 
 export interface ApiResponse<T> {

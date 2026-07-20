@@ -10,15 +10,15 @@ EXTENSION = "拔高拓展型"
 
 def calculate_level(score: float, weak_points: list[str], learning_goal: str) -> tuple[str, list[str]]:
     rules: list[str] = []
-    if score < 60:
+    if score < 70:
         level = FOUNDATION
-        rules.append("成绩低于60分，初始等级为基础巩固型")
-    elif score < 85:
+        rules.append("成绩低于70分，初始等级为基础巩固型")
+    elif score < 90:
         level = IMPROVEMENT
-        rules.append("成绩在60至84分之间，初始等级为中等提升型")
+        rules.append("成绩在70至89分之间，初始等级为中等提升型")
     else:
         level = EXTENSION
-        rules.append("成绩达到85分，初始等级为拔高拓展型")
+        rules.append("成绩达到90分，初始等级为拔高拓展型")
 
     if len(weak_points) >= 3:
         old_level = level
@@ -29,7 +29,7 @@ def calculate_level(score: float, weak_points: list[str], learning_goal: str) ->
         level = FOUNDATION
         rules.append("学习目标为巩固基础，最终等级限定为基础巩固型")
 
-    if ("竞赛" in learning_goal or "拓展" in learning_goal) and not (score >= 85 and len(weak_points) <= 1):
+    if ("竞赛" in learning_goal or "拓展" in learning_goal) and not (score >= 90 and len(weak_points) <= 1):
         if level == EXTENSION:
             level = IMPROVEMENT
         rules.append("当前成绩或薄弱点数量不满足拔高条件，暂不推荐拔高拓展型")
@@ -75,8 +75,17 @@ async def recommend_for_student(
         "score": subject_profile.recent_score,
         "rules": rules,
         "explanation": explanation,
-        "courses": [{"id": row.id, "name": row.name, "level": row.level} for row in course_rows],
-        "papers": [{"id": row.id, "name": row.name, "difficulty": row.difficulty} for row in paper_rows],
+        "courses": [{
+            "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
+            "level": row.level, "difficulty": row.difficulty, "price": float(row.price),
+            "totalLessons": row.total_lessons, "knowledgePoints": row.knowledge_points,
+            "suitableFor": row.suitable_for, "description": row.description,
+        } for row in course_rows],
+        "papers": [{
+            "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
+            "difficulty": row.difficulty, "questionCount": row.question_count,
+            "knowledgePoints": row.knowledge_points,
+        } for row in paper_rows],
     }
     db.add(RecommendationRecord(
         user_id=user.id,
