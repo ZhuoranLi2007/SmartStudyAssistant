@@ -4,14 +4,12 @@ import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, WrongQuestionTrainin
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { MainTabBar } from '../components/MainTabBar';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
-import { RecommendedPaperSection } from '../components/studyplan/RecommendedPaperSection';
-import { RecommendedWrongQuestionSection } from '../components/studyplan/RecommendedWrongQuestionSection';
 import { StudyPlanSummaryCard } from '../components/studyplan/StudyPlanSummaryCard';
 import { StudyTaskCard } from '../components/studyplan/StudyTaskCard';
 import { WeekDateStrip } from '../components/studyplan/WeekDateStrip';
 import { StudentProfile, StudyTask, TaskStatus } from '../model/DomainModels';
 import { DataLoadResult, DataSource } from '../model/ProfileModels';
-import { RecommendedPaper, RecommendedWrongQuestion, StudyPlanFilter, StudyPlanSummary, WeekDayItem } from '../model/StudyPlanModels';
+import { StudyPlanFilter, WeekDayItem } from '../model/StudyPlanModels';
 import { MockDataService } from '../service/MockDataService';
 import { StudentService } from '../service/StudentService';
 import { StudyPlanService } from '../service/StudyPlanService';
@@ -22,8 +20,6 @@ export struct StudyPlanPage {
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @StorageLink(AppStorageKeys.USER_ROLE) role: string = 'parent';
   @State tasks: StudyTask[] = [];
-  @State recommendedPapers: RecommendedPaper[] = [];
-  @State recommendedWrongQuestions: RecommendedWrongQuestion[] = [];
   @State weekDays: WeekDayItem[] = [];
   @State studentName: string = '';
   @State selectedDate: string = '';
@@ -32,8 +28,12 @@ export struct StudyPlanPage {
   @State sourceMessage: string = '';
   @State isLoading: boolean = false;
   @State operatingTaskId: number = 0;
-  @State addingPaperId: number = 0;
-  @State addingWrongQuestionId: number = 0;
+  @State summaryTotal: number = 0;
+  @State summaryCompleted: number = 0;
+  @State summaryCourse: number = 0;
+  @State summaryPaper: number = 0;
+  @State summaryProgress: number = 0;
+  @State summaryWeekLabel: string = '';
 
   aboutToAppear(): void {
     this.weekDays = this.createWeekDays();
@@ -68,9 +68,8 @@ export struct StudyPlanPage {
     if (this.isLoading) return;
     if (this.studentProfileId <= 0 && !AppConfig.USE_MOCK_DATA) {
       this.tasks = [];
-      this.recommendedPapers = [];
-      this.recommendedWrongQuestions = [];
       this.studentName = '';
+      this.refreshSummary();
       return;
     }
     this.isLoading = true;
@@ -83,15 +82,10 @@ export struct StudyPlanPage {
         this.source = DataSource.MOCK;
       }
       const taskResult: DataLoadResult<StudyTask[]> = await StudyPlanService.getTasks(this.studentProfileId);
-      const paperResult: DataLoadResult<RecommendedPaper[]> = await StudyPlanService.getRecommendedPapers(this.studentProfileId);
-      const wrongResult: DataLoadResult<RecommendedWrongQuestion[]> =
-        await StudyPlanService.getRecommendedWrongQuestions(this.studentProfileId);
       this.tasks = taskResult.data;
-      this.recommendedPapers = paperResult.data;
-      this.recommendedWrongQuestions = wrongResult.data;
-      if (taskResult.source === DataSource.MOCK || paperResult.source === DataSource.MOCK || wrongResult.source === DataSource.MOCK) {
+      if (taskResult.source === DataSource.MOCK) {
         this.source = DataSource.MOCK;
-        this.sourceMessage = taskResult.message || paperResult.message || wrongResult.message;
+        this.sourceMessage = taskResult.message;
       } else {
         this.source = DataSource.LIVE;
         this.sourceMessage = '';
@@ -99,14 +93,18 @@ export struct StudyPlanPage {
     } catch (error) {
       console.error(`学习计划加载失败: ${JSON.stringify(error)}`);
       this.tasks = MockDataService.getTasks();
-      this.recommendedPapers = MockDataService.getRecommendedPapers();
-      this.recommendedWrongQuestions = [];
       this.studentName = MockDataService.getStudentProfile().name;
       this.source = DataSource.MOCK;
       this.sourceMessage = '加载失败，当前展示演示学习计划';
     } finally {
       this.isLoading = false;
+      this.refreshSummary();
     }
+  }
+
+  private taskDateKey(value: string): string {
+    if (!value) return '';
+    return value.length >= 10 ? value.substring(0, 10) : value;
   }
 
   private weekLabel(): string {
@@ -118,14 +116,17 @@ export struct StudyPlanPage {
     if (this.weekDays.length < 7) return this.tasks.slice();
     const start: string = this.weekDays[0].date;
     const end: string = this.weekDays[6].date;
-    return this.tasks.filter((task: StudyTask) =>
-      !task.scheduledDate || (task.scheduledDate >= start && task.scheduledDate <= end));
+    return this.tasks.filter((task: StudyTask) => {
+      const dateKey: string = this.taskDateKey(task.scheduledDate);
+      if (!dateKey) return true;
+      return dateKey >= start && dateKey <= end;
+    });
   }
 
   private visibleTasks(): StudyTask[] {
     const weekly: StudyTask[] = this.weekTasks();
     if (this.filter === StudyPlanFilter.TODAY) {
-      return weekly.filter((task: StudyTask) => task.scheduledDate === this.selectedDate);
+      return weekly.filter((task: StudyTask) => this.taskDateKey(task.scheduledDate) === this.selectedDate);
     }
     if (this.filter === StudyPlanFilter.COMPLETED) {
       return weekly.filter((task: StudyTask) => task.status === TaskStatus.COMPLETED);
@@ -133,31 +134,23 @@ export struct StudyPlanPage {
     return weekly;
   }
 
-  private summary(): StudyPlanSummary {
+  private refreshSummary(): void {
     const weekly: StudyTask[] = this.weekTasks();
     let completed: number = 0;
     let courseCount: number = 0;
     let paperCount: number = 0;
-    let wrongQuestionCount: number = 0;
-    let totalMinutes: number = 0;
     for (let index: number = 0; index < weekly.length; index++) {
       const task: StudyTask = weekly[index];
       if (task.status === TaskStatus.COMPLETED) completed++;
       if (task.taskType === '试卷') paperCount++;
-      else if (task.taskType === '错题') wrongQuestionCount++;
-      else courseCount++;
-      totalMinutes += task.durationMinutes;
+      else if (task.taskType !== '错题') courseCount++;
     }
-    return {
-      totalCount: weekly.length,
-      completedCount: completed,
-      courseCount: courseCount,
-      paperCount: paperCount,
-      wrongQuestionCount: wrongQuestionCount,
-      unmasteredWrongQuestionCount: this.recommendedWrongQuestions.length,
-      totalMinutes: totalMinutes,
-      progress: weekly.length > 0 ? Math.round(completed * 100 / weekly.length) : 0
-    };
+    this.summaryTotal = weekly.length;
+    this.summaryCompleted = completed;
+    this.summaryCourse = courseCount;
+    this.summaryPaper = paperCount;
+    this.summaryProgress = weekly.length > 0 ? Math.round(completed * 100 / weekly.length) : 0;
+    this.summaryWeekLabel = this.weekLabel();
   }
 
   private openTask(task: StudyTask): void {
@@ -241,42 +234,6 @@ export struct StudyPlanPage {
     }
   }
 
-  private async addPaper(paper: RecommendedPaper): Promise<void> {
-    if (this.addingPaperId > 0) return;
-    this.addingPaperId = paper.id;
-    try {
-      await StudyPlanService.addTask(this.studentProfileId, '试卷', paper.id);
-      promptAction.showToast({ message: '已加入本周学习计划' });
-      await this.loadData();
-    } catch (error) {
-      const message: string = `${error}`.includes('409') ? '这份试卷已经在学习计划中' : '添加失败，请检查网络后重试';
-      promptAction.showToast({ message: message });
-    } finally {
-      this.addingPaperId = 0;
-    }
-  }
-
-  private openPaper(paper: RecommendedPaper): void {
-    const param: IdRouteParam = new IdRouteParam();
-    param.id = paper.id;
-    this.appPathStack.pushPathByName(AppRoutes.PAPER_DETAIL, param);
-  }
-
-  private async addWrongQuestion(item: RecommendedWrongQuestion): Promise<void> {
-    if (this.addingWrongQuestionId > 0) return;
-    this.addingWrongQuestionId = item.id;
-    try {
-      await StudyPlanService.addTask(this.studentProfileId, '错题', item.id);
-      promptAction.showToast({ message: '错题复测已加入本周计划' });
-      await this.loadData();
-    } catch (error) {
-      const message: string = `${error}`.includes('409') ? '这道错题已经在学习计划中' : '添加错题失败，请稍后重试';
-      promptAction.showToast({ message: message });
-    } finally {
-      this.addingWrongQuestionId = 0;
-    }
-  }
-
   @Builder
   private filterButton(label: string, value: StudyPlanFilter) {
     Button(label).layoutWeight(1).height(36).fontSize(12)
@@ -304,7 +261,15 @@ export struct StudyPlanPage {
               Button('创建或查看学生档案').width('100%').height(44).backgroundColor('#2F6BFF')
                 .onClick(() => this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, null))
             } else {
-              StudyPlanSummaryCard({ studentName: this.studentName, weekLabel: this.weekLabel(), summary: this.summary() })
+              StudyPlanSummaryCard({
+                studentName: this.studentName,
+                weekLabel: this.summaryWeekLabel,
+                totalCount: this.summaryTotal,
+                completedCount: this.summaryCompleted,
+                courseCount: this.summaryCourse,
+                paperCount: this.summaryPaper,
+                progress: this.summaryProgress
+              })
               Row({ space: 8 }) {
                 this.filterButton('今日', StudyPlanFilter.TODAY)
                 this.filterButton('本周', StudyPlanFilter.WEEK)
@@ -323,12 +288,11 @@ export struct StudyPlanPage {
               if (this.isLoading && this.tasks.length === 0) {
                 Text('正在加载学习计划...').fontSize(13).fontColor('#667085').padding(30).width('100%').textAlign(TextAlign.Center)
               } else if (this.visibleTasks().length === 0) {
-                EmptyStateView({ title: '暂无学习任务', description: '可以从下方推荐试卷或试卷中心补充训练' })
+                EmptyStateView({ title: '暂无学习任务', description: '可从首页「查看课程」「试卷训练」加入计划' })
               } else {
                 ForEach(this.visibleTasks(), (task: StudyTask) => {
                   StudyTaskCard({
                     task: task,
-                    role: this.role,
                     operating: this.operatingTaskId === task.id,
                     onOpen: (value: StudyTask): void => this.openTask(value),
                     onStart: (value: StudyTask): void => { void this.startTask(value); },
@@ -337,21 +301,15 @@ export struct StudyPlanPage {
                   })
                 }, (task: StudyTask) => `${task.id}-${task.status}`)
               }
-              RecommendedPaperSection({
-                papers: this.recommendedPapers,
-                isParent: this.role === 'parent',
-                addingPaperId: this.addingPaperId,
-                onAdd: (paper: RecommendedPaper): void => { void this.addPaper(paper); },
-                onDetail: (paper: RecommendedPaper): void => this.openPaper(paper),
-                onMore: (): void => this.appPathStack.pushPathByName(AppRoutes.PAPERS, null)
-              })
-              RecommendedWrongQuestionSection({
-                questions: this.recommendedWrongQuestions,
-                isParent: this.role === 'parent',
-                addingQuestionId: this.addingWrongQuestionId,
-                onAdd: (item: RecommendedWrongQuestion): void => { void this.addWrongQuestion(item); },
-                onOpenWrongBook: (): void => this.appPathStack.pushPathByName(AppRoutes.WRONG_QUESTIONS, null)
-              })
+              Column({ space: 8 }) {
+                Text('快捷添加').fontSize(16).fontWeight(FontWeight.Bold).width('100%')
+                Row({ space: 10 }) {
+                  Button('去选课程').layoutWeight(1).height(40).backgroundColor('#12B76A')
+                    .onClick(() => this.appPathStack.pushPathByName(AppRoutes.COURSES, null))
+                  Button('去练试卷').layoutWeight(1).height(40).backgroundColor('#2F6BFF')
+                    .onClick(() => this.appPathStack.pushPathByName(AppRoutes.PAPERS, null))
+                }.width('100%')
+              }.width('100%').padding(14).backgroundColor(Color.White).borderRadius(16)
               if (this.source === DataSource.MOCK) {
                 Text(this.sourceMessage || '当前部分学习计划为演示数据')
                   .fontSize(11).fontColor('#B54708').padding(10).width('100%')
@@ -363,5 +321,6 @@ export struct StudyPlanPage {
         MainTabBar({ activeRoute: AppRoutes.STUDY_PLAN })
       }.width('100%').height('100%').backgroundColor('#F2F4F7')
     }.hideTitleBar(true)
+    .onShown(() => this.loadData())
   }
 }

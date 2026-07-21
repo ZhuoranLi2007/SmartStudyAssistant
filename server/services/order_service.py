@@ -90,3 +90,39 @@ async def pay_order(db: AsyncSession, user: User, order_id: int) -> dict:
             ))
     await db.flush()
     return order_data(order, course)
+
+
+async def enroll_course(db: AsyncSession, user: User, student_profile_id: int, course_id: int) -> dict:
+    """免费加入我的课程（无订单）。"""
+    await ensure_student_access(db, user, student_profile_id)
+    course = await db.get(Course, course_id)
+    if course is None or not course.is_active:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    enrollment = await db.scalar(select(CourseEnrollment).where(
+        CourseEnrollment.student_profile_id == student_profile_id,
+        CourseEnrollment.course_id == course_id,
+    ))
+    if enrollment is not None:
+        return {
+            "enrolled": True,
+            "created": False,
+            "courseId": course.id,
+            "enrollmentId": enrollment.id,
+            "name": course.name,
+        }
+    enrollment = CourseEnrollment(
+        student_profile_id=student_profile_id,
+        course_id=course_id,
+        order_id=None,
+        total_lessons=course.total_lessons,
+        next_lesson="第一课：课程导学",
+    )
+    db.add(enrollment)
+    await db.flush()
+    return {
+        "enrolled": True,
+        "created": True,
+        "courseId": course.id,
+        "enrollmentId": enrollment.id,
+        "name": course.name,
+    }

@@ -70,46 +70,73 @@ def _question_templates(subject: str, knowledge_point: str) -> list[tuple[str, l
 
 
 async def seed_catalog(db: AsyncSession) -> None:
+    # 课程目录：五年级数学 5 个薄弱知识点 × 3 个层次 = 15 门课
+    knowledge_points = ["分数", "小数", "百分数", "应用题", "几何"]
+    levels = ["基础巩固型", "中等提升型", "拔高拓展型"]
+    difficulties = ["基础", "中等", "较难"]
+    suitable_for = [
+        "基础知识需要巩固的学生",
+        "希望稳定提高成绩的学生",
+        "成绩优秀且希望拓展的学生",
+    ]
+
+    def course_description(point: str, level: str) -> str:
+        return f"围绕五年级数学{point}知识点设计的{level}课程，包含讲解、例题与阶段练习。"
+
+    target_courses = []
+    for level_index, level in enumerate(levels):
+        for point in knowledge_points:
+            target_courses.append({
+                "name": f"{point}{level.replace('型', '')}课程",
+                "grade": "五年级",
+                "subject": "数学",
+                "level": level,
+                "difficulty": difficulties[level_index],
+                "suitable_for": suitable_for[level_index],
+                "knowledge_points": [point],
+                "description": course_description(point, level),
+                "price": PRICES[level_index],
+                "total_lessons": 12 + level_index * 4,
+            })
+    target_names = {c["name"] for c in target_courses}
+
+    # 停用旧课程，确保首页只显示这 15 门
+    for course in list((await db.scalars(select(Course))).all()):
+        course.is_active = course.name in target_names
+
     existing_course_names = set((await db.scalars(select(Course.name))).all())
-    for grade, subject in _catalog_pairs():
-        points = _knowledge_points(grade, subject)
-        for index, level in enumerate(LEVELS):
-            name = f"{grade}{subject}{level.replace('型', '')}课"
-            if name in existing_course_names:
-                continue
-            db.add(Course(
-                name=name,
-                grade=grade,
-                subject=subject,
-                level=level,
-                difficulty=DIFFICULTIES[index],
-                suitable_for="基础知识需要巩固的学生" if index == 0 else "希望稳定提高成绩的学生" if index == 1 else "成绩优秀且希望拓展的学生",
-                knowledge_points=points,
-                description=f"围绕{grade}{subject}核心知识点设计的{level}课程，包含讲解、例题与阶段练习。",
-                price=PRICES[index],
-                total_lessons=12 + index * 4,
-            ))
-            existing_course_names.add(name)
+    for data in target_courses:
+        if data["name"] in existing_course_names:
+            continue
+        db.add(Course(**data))
+        existing_course_names.add(data["name"])
     await db.flush()
 
+    # 试卷目录：五年级数学 5 个薄弱知识点 × 3 个层次 = 15 套卷，每套 5 题
+    target_papers = []
+    for level_index, level in enumerate(levels):
+        for point in knowledge_points:
+            target_papers.append({
+                "name": f"{point}{level.replace('型', '')}题型",
+                "grade": "五年级",
+                "subject": "数学",
+                "difficulty": DIFFICULTIES[level_index],
+                "knowledge_points": [point],
+                "question_count": 5,
+                "suitable_course_level": level,
+            })
+    target_paper_names = {p["name"] for p in target_papers}
+
+    # 停用旧试卷
+    for paper in list((await db.scalars(select(Paper))).all()):
+        paper.is_active = paper.name in target_paper_names
+
     existing_paper_names = set((await db.scalars(select(Paper.name))).all())
-    for grade, subject in _catalog_pairs():
-        points = _knowledge_points(grade, subject)
-        for index, level in enumerate(LEVELS):
-            for paper_index in (1, 2):
-                name = f"{grade}{subject}{level}训练卷{paper_index}"
-                if name in existing_paper_names:
-                    continue
-                db.add(Paper(
-                    name=name,
-                    grade=grade,
-                    subject=subject,
-                    difficulty=DIFFICULTIES[index],
-                    knowledge_points=points,
-                    question_count=20 if paper_index == 1 else 25,
-                    suitable_course_level=level,
-                ))
-                existing_paper_names.add(name)
+    for data in target_papers:
+        if data["name"] in existing_paper_names:
+            continue
+        db.add(Paper(**data))
+        existing_paper_names.add(data["name"])
     await db.flush()
 
     courses = list((await db.scalars(select(Course).order_by(Course.id))).all())
@@ -142,3 +169,43 @@ async def seed_catalog(db: AsyncSession) -> None:
                 knowledge_point=knowledge_point,
             ))
     await db.commit()
+
+
+async def clear_user_data(db: AsyncSession) -> None:
+    """清空所有账号与学习数据，保留课程/试卷目录。注册后个人中心从 0 开始。"""
+    from sqlalchemy import text
+
+    try:
+        await db.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+    except Exception:
+        pass
+    tables = [
+        "practice_answers",
+        "practice_attempts",
+        "wrong_questions",
+        "favorites",
+        "study_tasks",
+        "course_enrollments",
+        "course_orders",
+        "chat_messages",
+        "ai_requests",
+        "tool_call_logs",
+        "recommendation_records",
+        "chat_sessions",
+        "student_subject_profiles",
+        "student_profiles",
+        "family_members",
+        "families",
+        "users",
+    ]
+    for table in tables:
+        try:
+            await db.execute(text(f"DELETE FROM {table}"))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+    try:
+        await db.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        await db.commit()
+    except Exception:
+        await db.rollback()

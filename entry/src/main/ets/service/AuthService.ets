@@ -10,12 +10,12 @@ export class AuthService {
     return (await HttpClient.post<LoginResult>('/auth/login', request)).data;
   }
 
-  static async register(username: string, phone: string, password: string, role: string): Promise<LoginResult> {
+  static async register(username: string, phone: string, password: string): Promise<LoginResult> {
     const request = new RegisterRequest();
     request.username = username;
     request.phone = phone;
     request.password = password;
-    request.role = role;
+    request.role = 'user';
     return (await HttpClient.post<LoginResult>('/auth/register', request)).data;
   }
 }

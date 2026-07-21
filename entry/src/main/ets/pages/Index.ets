@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { AppRoutes } from '../common/AppRoutes';
+import { AppRoutes, ProfileSetupRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { PageMap } from './PageMap';
 import { SessionSnapshot, SessionStorageService } from '../service/SessionStorageService';
@@ -13,8 +13,9 @@ struct Index {
     AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, '');
     AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, 0);
     AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, '');
-    AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, 'parent');
+    AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, 'user');
     AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, 0);
+    AppStorage.setOrCreate<boolean>(AppStorageKeys.PROFILE_COMPLETED, false);
     void this.restoreSession();
   }
 
@@ -27,7 +28,18 @@ struct Index {
       AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, snapshot.username);
       AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, snapshot.role);
       AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, snapshot.studentProfileId);
-      this.appPathStack.pushPathByName(snapshot.token ? AppRoutes.HOME : AppRoutes.LOGIN, null, false);
+      AppStorage.setOrCreate<boolean>(AppStorageKeys.PROFILE_COMPLETED, snapshot.profileCompleted);
+      if (!snapshot.token) {
+        this.appPathStack.pushPathByName(AppRoutes.LOGIN, null, false);
+        return;
+      }
+      if (!snapshot.profileCompleted) {
+        const param: ProfileSetupRouteParam = new ProfileSetupRouteParam();
+        param.requireSetup = true;
+        this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, param, false);
+        return;
+      }
+      this.appPathStack.pushPathByName(AppRoutes.HOME, null, false);
     } catch (error) {
       console.error(`恢复登录状态失败: ${JSON.stringify(error)}`);
       this.appPathStack.pushPathByName(AppRoutes.LOGIN, null, false);

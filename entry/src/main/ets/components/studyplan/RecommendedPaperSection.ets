@@ -38,11 +38,9 @@ export struct RecommendedPaperSection {
                 Row({ space: 7 }) {
                   Button('详情').height(32).fontSize(11).backgroundColor('#E9EEF8').fontColor('#344054')
                     .onClick(() => this.onDetail(paper))
-                  if (this.isParent) {
-                    Button(this.addingPaperId === paper.id ? '添加中...' : '加入本周')
-                      .height(32).fontSize(11).backgroundColor('#2F6BFF').enabled(this.addingPaperId === 0)
-                      .onClick(() => this.onAdd(paper))
-                  }
+                  Button(this.addingPaperId === paper.id ? '添加中...' : '加入本周')
+                    .height(32).fontSize(11).backgroundColor('#2F6BFF').enabled(this.addingPaperId === 0)
+                    .onClick(() => this.onAdd(paper))
                 }.width('100%')
               }.width(205).padding(12).backgroundColor(Color.White).borderRadius(15)
                 .border({ width: 1, color: '#EAECF0' })

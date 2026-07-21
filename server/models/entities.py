@@ -54,6 +54,7 @@ class StudentProfile(TimestampMixin, Base):
     weekly_study_minutes: Mapped[int] = mapped_column(Integer, default=180)
     bind_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     bind_code_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    profile_completed: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class StudentSubjectProfile(TimestampMixin, Base):
@@ -184,12 +185,24 @@ class CourseEnrollment(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
     course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), index=True)
-    order_id: Mapped[int] = mapped_column(ForeignKey("course_orders.id"), unique=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("course_orders.id"), unique=True, nullable=True)
     completed_lessons: Mapped[int] = mapped_column(Integer, default=0)
     total_lessons: Mapped[int] = mapped_column(Integer, default=12)
     progress: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="LEARNING")
     next_lesson: Mapped[str] = mapped_column(String(150), default="第一课")
+
+
+class Favorite(TimestampMixin, Base):
+    __tablename__ = "favorites"
+    __table_args__ = (UniqueConstraint("student_profile_id", "target_id", "type", name="uq_student_favorite"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
+    target_id: Mapped[int] = mapped_column(Integer, index=True)
+    type: Mapped[str] = mapped_column(String(20), index=True)
+    title: Mapped[str] = mapped_column(String(150))
+    subtitle: Mapped[str] = mapped_column(String(150), default="")
+    tag: Mapped[str] = mapped_column(String(50), default="")
 
 
 class PaperQuestion(TimestampMixin, Base):

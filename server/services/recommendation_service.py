@@ -8,32 +8,25 @@ IMPROVEMENT = "中等提升型"
 EXTENSION = "拔高拓展型"
 
 
-def calculate_level(score: float, weak_points: list[str], learning_goal: str) -> tuple[str, list[str]]:
-    rules: list[str] = []
-    if score < 70:
-        level = FOUNDATION
-        rules.append("成绩低于70分，初始等级为基础巩固型")
-    elif score < 90:
-        level = IMPROVEMENT
-        rules.append("成绩在70至89分之间，初始等级为中等提升型")
-    else:
-        level = EXTENSION
-        rules.append("成绩达到90分，初始等级为拔高拓展型")
+def calculate_level(score: float) -> str:
+    if score < 60:
+        return FOUNDATION
+    if score < 80:
+        return IMPROVEMENT
+    return EXTENSION
 
-    if len(weak_points) >= 3:
-        old_level = level
-        level = FOUNDATION if level == IMPROVEMENT else IMPROVEMENT if level == EXTENSION else FOUNDATION
-        rules.append(f"薄弱点达到3项，等级由{old_level}下调为{level}")
 
-    if "巩固基础" in learning_goal:
-        level = FOUNDATION
-        rules.append("学习目标为巩固基础，最终等级限定为基础巩固型")
-
-    if ("竞赛" in learning_goal or "拓展" in learning_goal) and not (score >= 90 and len(weak_points) <= 1):
-        if level == EXTENSION:
-            level = IMPROVEMENT
-        rules.append("当前成绩或薄弱点数量不满足拔高条件，暂不推荐拔高拓展型")
-    return level, rules
+def _match_by_weak_points(items: list, weak_points: list[str], limit: int = 5):
+    """按薄弱知识点顺序匹配，每个知识点优先返回一项；未匹配时返回空列表。"""
+    matched = []
+    for point in weak_points:
+        for item in items:
+            if point in (getattr(item, "knowledge_points", None) or []) and item not in matched:
+                matched.append(item)
+                break
+        if len(matched) >= limit:
+            break
+    return matched
 
 
 async def recommend_for_student(
@@ -56,24 +49,36 @@ async def recommend_for_student(
     if subject_profile is None:
         return {"missingFields": ["科目", "最近成绩", "薄弱知识点"], "recommendation": None}
 
-    level, rules = calculate_level(subject_profile.recent_score, subject_profile.weak_points, profile.learning_goal)
-    course_rows = list((await db.scalars(select(Course).where(
-        Course.grade == profile.grade, Course.subject == subject_profile.subject, Course.level == level, Course.is_active.is_(True)
-    ).limit(3))).all())
-    paper_rows = list((await db.scalars(select(Paper).where(
+    level = calculate_level(subject_profile.recent_score)
+    weak_points = subject_profile.weak_points or []
+
+    all_courses = list((await db.scalars(select(Course).where(
+        Course.grade == profile.grade, Course.subject == subject_profile.subject,
+        Course.level == level, Course.is_active.is_(True)
+    ))).all())
+    course_rows = _match_by_weak_points(all_courses, weak_points, limit=3)
+    if not course_rows:
+        course_rows = all_courses[:3]
+
+    all_papers = list((await db.scalars(select(Paper).where(
         Paper.grade == profile.grade, Paper.subject == subject_profile.subject,
         Paper.suitable_course_level == level, Paper.is_active.is_(True)
-    ).limit(3))).all())
+    ))).all())
+    paper_rows = _match_by_weak_points(all_papers, weak_points, limit=3)
+    if not paper_rows:
+        paper_rows = all_papers[:3]
+
     intensity = "每周2次" if profile.weekly_study_minutes < 120 else "每周3次" if profile.weekly_study_minutes < 300 else "每周4次"
     explanation = (
-        f"建议选择{level}。孩子当前{subject_profile.subject}成绩为{subject_profile.recent_score:g}分，"
-        f"薄弱点为{'、'.join(subject_profile.weak_points) or '暂未记录'}。建议{intensity}学习，先完成专项训练再阶段复测。"
+        f"根据当前成绩{subject_profile.recent_score:g}分，推荐{level}内容；"
+        f"薄弱点为{'、'.join(weak_points) or '暂未记录'}，已优先匹配相关课程与试卷。"
+        f"建议{intensity}学习，先完成专项训练再阶段复测。"
     )
     result = {
         "level": level,
         "subject": subject_profile.subject,
         "score": subject_profile.recent_score,
-        "rules": rules,
+        "rules": [f"成绩{subject_profile.recent_score:g}分，对应{level}"],
         "explanation": explanation,
         "courses": [{
             "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
@@ -92,7 +97,7 @@ async def recommend_for_student(
         student_profile_id=profile.id,
         session_id=session_id,
         recommendation_type="COURSE_RECOMMENDATION",
-        rule_result={"level": level, "rules": rules},
+        rule_result={"level": level, "score": subject_profile.recent_score, "weakPoints": weak_points},
         result_json=result,
         explanation=explanation,
     ))

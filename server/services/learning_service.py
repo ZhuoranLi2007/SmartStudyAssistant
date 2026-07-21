@@ -13,11 +13,13 @@ from server.models import (
     PracticeAnswer,
     PracticeAttempt,
     StudentProfile,
+    StudentSubjectProfile,
     StudyTask,
     User,
     WrongQuestion,
 )
 from server.services.access_service import ensure_student_access
+from server.services.recommendation_service import calculate_level
 
 
 async def my_courses(db: AsyncSession, user: User, student_profile_id: int | None = None) -> list[dict]:
@@ -27,11 +29,7 @@ async def my_courses(db: AsyncSession, user: User, student_profile_id: int | Non
         statement = statement.where(CourseEnrollment.student_profile_id == student_profile_id)
     else:
         statement = statement.join(StudentProfile, StudentProfile.id == CourseEnrollment.student_profile_id)
-        if user.role == "student":
-            statement = statement.where(StudentProfile.student_user_id == user.id)
-        else:
-            from server.models import FamilyMember
-            statement = statement.join(FamilyMember, FamilyMember.family_id == StudentProfile.family_id).where(FamilyMember.user_id == user.id)
+        statement = statement.where(StudentProfile.student_user_id == user.id)
     rows = (await db.execute(statement.order_by(CourseEnrollment.updated_at.desc()))).all()
     return [{
         "id": enrollment.id,
@@ -121,13 +119,27 @@ async def submit_attempt(
                 wrong.mastered = False
                 wrong.wrong_count += 1
     attempt.knowledge_stats_json = knowledge_stats
+
+    # 同步将学习计划中对应的未完成的试卷任务标记为已完成
+    task = await db.scalar(select(StudyTask).where(
+        StudyTask.student_profile_id == student_profile_id,
+        StudyTask.task_type == "试卷",
+        StudyTask.target_id == paper_id,
+        StudyTask.status != "已完成",
+    ).order_by(StudyTask.created_at.desc()))
+    if task is not None:
+        task.status = "已完成"
+
     await db.flush()
+    wrong_saved = len(questions) - correct_count
     return {
         "attemptId": attempt.id,
         "paperId": paper_id,
         "score": score,
         "correctCount": correct_count,
         "questionCount": len(questions),
+        "wrongSavedCount": wrong_saved,
+        "autoSavedToWrongBook": wrong_saved > 0,
         "knowledgeStats": knowledge_stats,
         "results": [{
             "questionId": item.id,
@@ -137,6 +149,73 @@ async def submit_attempt(
             "explanation": item.explanation,
         } for item in sorted(questions, key=lambda row: row.sequence)],
     }
+
+
+async def add_wrong_questions_batch(
+    db: AsyncSession, user: User, student_profile_id: int, items: list,
+) -> dict:
+    await ensure_student_access(db, user, student_profile_id)
+    saved = 0
+    for item in items:
+        paper_id = int(getattr(item, "paper_id", 0) or 0)
+        question_id = int(getattr(item, "question_id", 0) or 0)
+        question_text = (getattr(item, "question_text", "") or "").strip()
+        if not question_text:
+            continue
+        existing = None
+        if question_id > 0:
+            existing = await db.scalar(select(WrongQuestion).where(
+                WrongQuestion.student_profile_id == student_profile_id,
+                WrongQuestion.question_id == question_id,
+            ))
+        if existing is None:
+            existing = await db.scalar(select(WrongQuestion).where(
+                WrongQuestion.student_profile_id == student_profile_id,
+                WrongQuestion.question_text == question_text,
+            ))
+        subject = (getattr(item, "subject", "") or "综合").strip() or "综合"
+        knowledge_point = (getattr(item, "knowledge_point", "") or "综合").strip() or "综合"
+        user_answer = getattr(item, "user_answer", "") or ""
+        correct_answer = getattr(item, "correct_answer", "") or ""
+        explanation = getattr(item, "explanation", "") or ""
+        if existing is None:
+            # question_id 有外键时必须落到真实题目；否则尽量绑定试卷第一题避免失败
+            bind_question_id = question_id
+            if bind_question_id <= 0:
+                fallback = await db.scalar(select(PaperQuestion.id).where(
+                    PaperQuestion.paper_id == paper_id
+                ).order_by(PaperQuestion.sequence).limit(1)) if paper_id > 0 else None
+                if fallback is None:
+                    continue
+                bind_question_id = int(fallback)
+            if paper_id <= 0:
+                paper_row = await db.get(PaperQuestion, bind_question_id)
+                paper_id = paper_row.paper_id if paper_row is not None else 0
+            if paper_id <= 0:
+                continue
+            db.add(WrongQuestion(
+                student_profile_id=student_profile_id,
+                paper_id=paper_id,
+                question_id=bind_question_id,
+                subject=subject,
+                knowledge_point=knowledge_point,
+                question_text=question_text,
+                user_answer=user_answer,
+                correct_answer=correct_answer,
+                explanation=explanation,
+            ))
+            saved += 1
+        else:
+            existing.user_answer = user_answer
+            existing.correct_answer = correct_answer
+            existing.explanation = explanation
+            existing.subject = subject
+            existing.knowledge_point = knowledge_point
+            existing.mastered = False
+            existing.wrong_count += 1
+            saved += 1
+    await db.flush()
+    return {"savedCount": saved}
 
 
 async def wrong_question_list(db: AsyncSession, user: User, student_profile_id: int, subject: str | None = None) -> list[dict]:
@@ -185,8 +264,6 @@ async def submit_wrong_question_training(
     db: AsyncSession, user: User, student_profile_id: int, wrong_question_id: int, selected_index: int,
 ) -> dict:
     await ensure_student_access(db, user, student_profile_id)
-    if user.role != "student":
-        raise HTTPException(status_code=403, detail="错题复测由学生账号完成")
     wrong = await db.get(WrongQuestion, wrong_question_id)
     if wrong is None or wrong.student_profile_id != student_profile_id:
         raise HTTPException(status_code=404, detail="错题不存在")
@@ -281,8 +358,40 @@ async def generate_week_plan(db: AsyncSession, user: User, student_profile_id: i
                     "status": item.status,
                 } for item in existing_tasks],
             }
-    courses = list((await db.scalars(select(Course).where(Course.grade == profile.grade, Course.is_active.is_(True)).limit(4))).all())
-    papers = list((await db.scalars(select(Paper).where(Paper.grade == profile.grade, Paper.is_active.is_(True)).limit(4))).all())
+    subject_profile = await db.scalar(select(StudentSubjectProfile).where(
+        StudentSubjectProfile.student_profile_id == student_profile_id
+    ).order_by(StudentSubjectProfile.updated_at.desc()))
+    if subject_profile is None:
+        raise HTTPException(status_code=404, detail="未找到学科档案，请先完善学生档案")
+
+    level = calculate_level(subject_profile.recent_score)
+    weak_points = subject_profile.weak_points or []
+    subject = subject_profile.subject
+
+    all_courses = list((await db.scalars(select(Course).where(
+        Course.grade == profile.grade, Course.subject == subject,
+        Course.level == level, Course.is_active.is_(True)
+    ))).all())
+    matched_courses = []
+    for point in weak_points:
+        for course in all_courses:
+            if point in (course.knowledge_points or []) and course not in matched_courses:
+                matched_courses.append(course)
+                break
+    courses = matched_courses if matched_courses else all_courses[:4]
+
+    all_papers = list((await db.scalars(select(Paper).where(
+        Paper.grade == profile.grade, Paper.subject == subject,
+        Paper.suitable_course_level == level, Paper.is_active.is_(True)
+    ))).all())
+    matched_papers = []
+    for point in weak_points:
+        for paper in all_papers:
+            if point in (paper.knowledge_points or []) and paper not in matched_papers:
+                matched_papers.append(paper)
+                break
+    papers = matched_papers if matched_papers else all_papers[:4]
+
     if not courses and not papers:
         raise HTTPException(status_code=404, detail="暂无可生成计划的课程或试卷")
     duration = max(20, min(90, profile.weekly_study_minutes // 7))

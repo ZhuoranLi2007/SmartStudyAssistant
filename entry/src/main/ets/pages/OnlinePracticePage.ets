@@ -1,14 +1,16 @@
 import { promptAction } from '@kit.ArkUI';
+import { AppStorageKeys } from '../common/AppStorageKeys';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { MockHomeData } from '../data/MockHomeData';
+import { PracticeAttemptResult, PracticeLoadResult, PracticeQuestionResult } from '../model/AiModels';
+import { TaskStatus } from '../model/DomainModels';
 import { PracticeOption, PracticeQuestion } from '../model/HomeModels';
 import { MockDataService } from '../service/MockDataService';
-import { AppStorageKeys } from '../common/AppStorageKeys';
-import { PracticeAttemptResult, PracticeLoadResult, PracticeQuestionResult } from '../model/AiModels';
 import { PracticeService } from '../service/PracticeService';
 import { StudyPlanService } from '../service/StudyPlanService';
-import { TaskStatus } from '../model/DomainModels';
+import { WrongQuestionBatchItemRequest } from '../service/NetworkDtos';
+import { WrongQuestionService } from '../service/WrongQuestionService';
 
 @Component
 export struct OnlinePracticePage {
@@ -17,6 +19,7 @@ export struct OnlinePracticePage {
   @Prop paperId: number = 0;
   @Prop taskId: number = 0;
   @State paperName: string = '在线答题';
+  @State paperSubject: string = '数学';
   @State questions: PracticeQuestion[] = [];
   @State currentIndex: number = 0;
   @State selectedAnswers: number[] = [];
@@ -25,6 +28,9 @@ export struct OnlinePracticePage {
   @State loading: boolean = true;
   @State submitting: boolean = false;
   @State liveData: boolean = false;
+  @State wrongBookSaved: boolean = false;
+  @State savingWrongBook: boolean = false;
+  @State autoSavedWrongCount: number = 0;
 
   aboutToAppear(): void {
     void this.loadQuestions();
@@ -37,6 +43,9 @@ export struct OnlinePracticePage {
       this.questions = result.questions;
       this.paperName = result.paperName;
       this.liveData = result.live;
+      if (result.questions.length > 0 && result.questions[0].subject) {
+        this.paperSubject = result.questions[0].subject || '数学';
+      }
     } catch (error) {
       this.questions = MockHomeData.getPracticeQuestions(this.paperId);
       if (this.questions.length > 0) this.paperName = MockDataService.getPaper(this.paperId).name;
@@ -61,9 +70,20 @@ export struct OnlinePracticePage {
   }
 
   private next(): void {
-    if (this.selectedIndex() < 0) { promptAction.showToast({ message: '请先选择一个答案' }); return; }
+    if (this.selectedIndex() < 0) {
+      promptAction.showToast({ message: '请先选择一个答案' });
+      return;
+    }
     if (this.currentIndex < this.questions.length - 1) this.currentIndex++;
     else void this.submit();
+  }
+
+  private wrongCount(): number {
+    let count: number = 0;
+    for (let index: number = 0; index < this.questions.length; index++) {
+      if (this.selectedAnswers[index] !== this.questions[index].correctIndex) count++;
+    }
+    return count;
   }
 
   private async submit(): Promise<void> {
@@ -98,7 +118,9 @@ export struct OnlinePracticePage {
                 stem: updated[questionIndex].stem,
                 options: updated[questionIndex].options,
                 correctIndex: item.correctIndex,
-                explanation: item.explanation
+                explanation: item.explanation,
+                knowledgePoint: updated[questionIndex].knowledgePoint,
+                subject: updated[questionIndex].subject
               };
             }
           }
@@ -106,6 +128,8 @@ export struct OnlinePracticePage {
         this.questions = updated;
         this.score = Math.round(result.score);
         this.submitted = true;
+        this.autoSavedWrongCount = result.wrongSavedCount || this.wrongCount();
+        this.wrongBookSaved = false;
         await this.completePlanTask();
         return;
       } catch (error) {
@@ -122,6 +146,7 @@ export struct OnlinePracticePage {
     }
     this.score = this.questions.length > 0 ? Math.round(correctCount * 100 / this.questions.length) : 0;
     this.submitted = true;
+    this.wrongBookSaved = false;
     await this.completePlanTask();
   }
 
@@ -141,6 +166,50 @@ export struct OnlinePracticePage {
     return `${question.options[index].label}. ${question.options[index].content}`;
   }
 
+  private buildWrongItems(): WrongQuestionBatchItemRequest[] {
+    const items: WrongQuestionBatchItemRequest[] = [];
+    for (let index: number = 0; index < this.questions.length; index++) {
+      const question: PracticeQuestion = this.questions[index];
+      if (this.selectedAnswers[index] === question.correctIndex) continue;
+      const item = new WrongQuestionBatchItemRequest();
+      item.paperId = this.paperId;
+      item.questionId = question.id;
+      item.subject = question.subject || this.paperSubject || '数学';
+      item.knowledgePoint = question.knowledgePoint || '综合';
+      item.questionText = question.stem;
+      item.userAnswer = this.answerText(question, this.selectedAnswers[index]);
+      item.correctAnswer = this.answerText(question, question.correctIndex);
+      item.explanation = question.explanation || '';
+      items.push(item);
+    }
+    return items;
+  }
+
+  private async saveWrongBook(): Promise<void> {
+    if (this.savingWrongBook || this.wrongBookSaved) return;
+    const wrong: number = this.wrongCount();
+    if (wrong <= 0) {
+      promptAction.showToast({ message: '本次没有错题' });
+      return;
+    }
+    if (this.studentProfileId <= 0) {
+      promptAction.showToast({ message: '请先完善学生档案后再加入错题本' });
+      return;
+    }
+    this.savingWrongBook = true;
+    try {
+      const saved: number = await WrongQuestionService.addBatch(this.studentProfileId, this.buildWrongItems());
+      this.wrongBookSaved = true;
+      this.autoSavedWrongCount = saved;
+      promptAction.showToast({ message: `已将 ${saved} 道错题加入错题本` });
+    } catch (error) {
+      promptAction.showToast({ message: '加入错题本失败，请稍后重试' });
+      console.error(`加入错题本失败: ${error}`);
+    } finally {
+      this.savingWrongBook = false;
+    }
+  }
+
   @Builder
   private optionItem(option: PracticeOption, index: number) {
     Row({ space: 10 }) {
@@ -155,18 +224,24 @@ export struct OnlinePracticePage {
 
   @Builder
   private resultCard(question: PracticeQuestion, index: number) {
-    Column({ space: 7 }) {
+    Column({ space: 8 }) {
       Row() {
-        Text(`第${index + 1}题`).fontSize(13).fontWeight(FontWeight.Bold).layoutWeight(1)
+        Text(`第${index + 1}题`).fontSize(13).fontWeight(FontWeight.Bold).fontColor('#172033').layoutWeight(1)
         Text(this.selectedAnswers[index] === question.correctIndex ? '回答正确' : '回答错误')
-          .fontSize(12).fontColor(this.selectedAnswers[index] === question.correctIndex ? '#12B76A' : '#D92D20')
+          .fontSize(11).fontWeight(FontWeight.Medium)
+          .fontColor(this.selectedAnswers[index] === question.correctIndex ? '#027A48' : '#B42318')
+          .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+          .backgroundColor(this.selectedAnswers[index] === question.correctIndex ? '#ECFDF3' : '#FEF3F2')
+          .borderRadius(999)
       }.width('100%')
       Text(question.stem).fontSize(14).fontWeight(FontWeight.Medium).width('100%')
       Text(`你的答案：${this.answerText(question, this.selectedAnswers[index])}`).fontSize(12)
         .fontColor(this.selectedAnswers[index] === question.correctIndex ? '#12B76A' : '#D92D20').width('100%')
       Text(`正确答案：${this.answerText(question, question.correctIndex)}`).fontSize(12).fontColor('#12B76A').width('100%')
       Text(`解析：${question.explanation}`).fontSize(12).fontColor('#667085').lineHeight(20).width('100%')
+        .padding(10).backgroundColor('#F8FAFC').borderRadius(10)
     }.padding(14).width('100%').backgroundColor(Color.White).borderRadius(15)
+      .border({ width: 1, color: this.selectedAnswers[index] === question.correctIndex ? '#A6F4C5' : '#FECDCA' })
   }
 
   build() {
@@ -181,15 +256,46 @@ export struct OnlinePracticePage {
           Scroll() {
             Column({ space: 13 }) {
               Column({ space: 8 }) {
-                Text('答题完成').fontSize(20).fontWeight(FontWeight.Bold)
-                Text(`${this.score} 分`).fontSize(38).fontWeight(FontWeight.Bold).fontColor('#2F6BFF')
-              Text(`共 ${this.questions.length} 题，以下是本次答题解析`).fontSize(12).fontColor('#667085')
-              Text(this.liveData ? '本次结果已保存到学习报告' : '当前为本地演示结果').fontSize(11).fontColor(this.liveData ? '#12B76A' : '#B54708')
-              }.padding(18).width('100%').backgroundColor('#EEF4FF').borderRadius(18)
+                Text('答题完成').fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033')
+                Text(`${this.score} 分`).fontSize(40).fontWeight(FontWeight.Bold)
+                  .fontColor(this.score >= 60 ? '#12B76A' : '#F04438')
+                Text(`共 ${this.questions.length} 题 · 错 ${this.wrongCount()} 题`).fontSize(13).fontColor('#475467')
+                Text(this.liveData ? '本次结果已保存到学习报告' : '当前为本地演示结果')
+                  .fontSize(11).fontColor(this.liveData ? '#027A48' : '#B54708')
+                  .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                  .backgroundColor(this.liveData ? '#ECFDF3' : '#FFFAEB')
+                  .borderRadius(8)
+              }
+              .padding(18).width('100%')
+              .linearGradient({
+                angle: 160,
+                colors: this.score >= 60 ? [['#ECFDF3', 0], ['#EEF4FF', 1]] : [['#FEF3F2', 0], ['#EEF4FF', 1]]
+              })
+              .borderRadius(18)
+
+              if (this.wrongCount() > 0) {
+                Column({ space: 10 }) {
+                  if (this.wrongBookSaved) {
+                    Text(`已加入错题本（${this.autoSavedWrongCount || this.wrongCount()} 道）`)
+                      .fontSize(13).fontColor('#027A48').width('100%')
+                  } else {
+                    Text(`发现 ${this.wrongCount()} 道错题，可一键加入错题本`)
+                      .fontSize(13).fontColor('#344054').width('100%')
+                    Button(this.savingWrongBook ? '加入中...' : `将错题加入错题本（${this.wrongCount()}）`)
+                      .width('100%').height(46).fontWeight(FontWeight.Bold)
+                      .backgroundColor('#F04438')
+                      .enabled(!this.savingWrongBook)
+                      .onClick(() => void this.saveWrongBook())
+                  }
+                }.padding(14).width('100%').backgroundColor('#FFF5F5').borderRadius(16)
+                  .border({ width: 1, color: '#FECDCA' })
+              }
+
               ForEach(this.questions, (question: PracticeQuestion, index: number) => {
                 this.resultCard(question, index)
               }, (question: PracticeQuestion) => `${question.id}`)
-              Button('返回上一页').width('100%').height(46).backgroundColor('#2F6BFF').onClick(() => this.appPathStack.pop())
+              Button('返回上一页').width('100%').height(46).backgroundColor('#2F6BFF')
+                .onClick(() => this.appPathStack.pop())
             }.padding({ left: 16, right: 16, bottom: 24 }).width('100%')
           }.layoutWeight(1)
         } else {
@@ -216,7 +322,7 @@ export struct OnlinePracticePage {
             }.width('100%')
           }.padding({ left: 16, right: 16, bottom: 20 }).width('100%').layoutWeight(1)
         }
-      }.width('100%').height('100%').backgroundColor('#F2F4F7')
+      }.width('100%').height('100%').backgroundColor('#F2F5FB')
     }.hideTitleBar(true)
   }
 }

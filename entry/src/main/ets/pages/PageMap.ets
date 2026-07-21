@@ -1,4 +1,4 @@
-import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, OrderRouteParam, PlatformInfoRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
+import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, PlatformInfoRouteParam, ProfileSetupRouteParam, SearchRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
 import { AiAssistantPage } from './AiAssistantPage';
 import { CourseDetailPage } from './CourseDetailPage';
 import { CourseRecommendationPage } from './CourseRecommendationPage';
@@ -8,6 +8,7 @@ import { PaperDetailPage } from './PaperDetailPage';
 import { PaperResourcePage } from './PaperResourcePage';
 import { ProfilePage } from './ProfilePage';
 import { RegisterPage } from './RegisterPage';
+import { SearchResultPage } from './SearchResultPage';
 import { StudentProfilePage } from './StudentProfilePage';
 import { StudyPlanPage } from './StudyPlanPage';
 import { CustomerChatPage } from './CustomerChatPage';
@@ -16,22 +17,20 @@ import { FeedbackPage } from './FeedbackPage';
 import { LearningReportPage } from './LearningReportPage';
 import { MyCoursesPage } from './MyCoursesPage';
 import { MyFavoritesPage } from './MyFavoritesPage';
-import { MyOrdersPage } from './MyOrdersPage';
 import { PlatformInfoPage } from './PlatformInfoPage';
 import { SettingsPage } from './SettingsPage';
 import { WrongQuestionsPage } from './WrongQuestionsPage';
 import { OnlinePracticePage } from './OnlinePracticePage';
-import { OrderDetailPage } from './OrderDetailPage';
 import { WrongQuestionTrainingPage } from './WrongQuestionTrainingPage';
-
-function orderFilterFromParam(param: Object): string {
-  if (param instanceof OrderRouteParam) return param.status;
-  return 'ALL';
-}
 
 function infoTypeFromParam(param: Object): string {
   if (param instanceof PlatformInfoRouteParam) return param.type;
   return 'ABOUT';
+}
+
+function requireSetupFromParam(param: Object): boolean {
+  if (param instanceof ProfileSetupRouteParam) return param.requireSetup;
+  return false;
 }
 
 function paperIdFromPracticeParam(param: Object): number {
@@ -54,6 +53,11 @@ function wrongQuestionTaskIdFromParam(param: Object): number {
   return 0;
 }
 
+function keywordFromSearchParam(param: Object): string {
+  if (param instanceof SearchRouteParam) return param.keyword;
+  return '';
+}
+
 @Builder
 export function PageMap(name: string, param: Object) {
   if (name === AppRoutes.LOGIN) {
@@ -63,7 +67,7 @@ export function PageMap(name: string, param: Object) {
   } else if (name === AppRoutes.HOME) {
     HomePage()
   } else if (name === AppRoutes.STUDENT_PROFILE) {
-    StudentProfilePage()
+    StudentProfilePage({ requireSetup: requireSetupFromParam(param) })
   } else if (name === AppRoutes.AI_ASSISTANT) {
     AiAssistantPage()
   } else if (name === AppRoutes.COURSES) {
@@ -80,8 +84,6 @@ export function PageMap(name: string, param: Object) {
     ProfilePage()
   } else if (name === AppRoutes.MY_COURSES) {
     MyCoursesPage()
-  } else if (name === AppRoutes.MY_ORDERS) {
-    MyOrdersPage({ initialFilter: orderFilterFromParam(param) })
   } else if (name === AppRoutes.MY_FAVORITES) {
     MyFavoritesPage()
   } else if (name === AppRoutes.CUSTOMER_SERVICE) {
@@ -100,12 +102,12 @@ export function PageMap(name: string, param: Object) {
     PlatformInfoPage({ infoType: infoTypeFromParam(param) })
   } else if (name === AppRoutes.ONLINE_PRACTICE) {
     OnlinePracticePage({ paperId: paperIdFromPracticeParam(param), taskId: taskIdFromPracticeParam(param) })
-  } else if (name === AppRoutes.ORDER_DETAIL) {
-    OrderDetailPage({ orderId: (param as IdRouteParam).id })
   } else if (name === AppRoutes.WRONG_QUESTION_TRAINING) {
     WrongQuestionTrainingPage({
       wrongQuestionId: wrongQuestionIdFromParam(param),
       taskId: wrongQuestionTaskIdFromParam(param)
     })
+  } else if (name === AppRoutes.SEARCH_RESULT) {
+    SearchResultPage({ keyword: keywordFromSearchParam(param) })
   }
 }

@@ -10,7 +10,8 @@ export class OrderService {
         const data: CourseOrder = (await HttpClient.get<CourseOrder>(`/orders/${orderId}`)).data;
         return { data: data, source: DataSource.LIVE, message: '' };
       } catch (error) {
-        console.warn(`订单详情接口不可用，使用演示数据: ${JSON.stringify(error)}`);
+        console.warn(`订单详情接口不可用: ${JSON.stringify(error)}`);
+        throw new Error(`${error}`);
       }
     }
     const orders: CourseOrder[] = ProfileMockData.getOrders(OrderFilter.ALL);
@@ -25,21 +26,17 @@ export class OrderService {
     try {
       const query: string = filter === OrderFilter.ALL ? '' : `?status=${filter}`;
       const data: CourseOrder[] = (await HttpClient.get<CourseOrder[]>(`/orders${query}`)).data;
-      return { data: data, source: DataSource.LIVE, message: '' };
+      return { data: data || [], source: DataSource.LIVE, message: '' };
     } catch (error) {
-      console.warn(`订单接口不可用，使用演示数据: ${JSON.stringify(error)}`);
-      return ProfileMockData.mockResult<CourseOrder[]>(ProfileMockData.getOrders(filter));
+      console.warn(`订单接口不可用: ${JSON.stringify(error)}`);
+      return { data: [], source: DataSource.LIVE, message: '订单加载失败' };
     }
   }
 
   static async payOrder(orderId: number): Promise<DataLoadResult<CourseOrder>> {
     if (!AppConfig.USE_MOCK_DATA) {
-      try {
-        const data: CourseOrder = (await HttpClient.post<CourseOrder>(`/orders/${orderId}/pay`, new Object())).data;
-        return { data: data, source: DataSource.LIVE, message: '' };
-      } catch (error) {
-        console.warn(`支付接口不可用，执行本地演示支付: ${JSON.stringify(error)}`);
-      }
+      const data: CourseOrder = (await HttpClient.post<CourseOrder>(`/orders/${orderId}/pay`, new Object())).data;
+      return { data: data, source: DataSource.LIVE, message: '' };
     }
     return ProfileMockData.mockResult<CourseOrder>(ProfileMockData.payOrder(orderId), '支付状态仅在当前演示运行期有效');
   }

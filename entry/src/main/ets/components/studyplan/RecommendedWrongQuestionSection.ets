@@ -32,12 +32,10 @@ export struct RecommendedWrongQuestionSection {
                 Text(`${item.subject} · ${item.knowledgePoint}`).fontSize(14).fontWeight(FontWeight.Bold).fontColor('#172033')
                 Text(`累计答错 ${item.wrongCount} 次`).fontSize(11).fontColor('#D92D20')
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              if (this.isParent) {
-                Button(this.addingQuestionId === item.id ? '添加中...' : '加入本周')
-                  .height(32).fontSize(11).backgroundColor('#2F6BFF')
-                  .enabled(this.addingQuestionId === 0)
-                  .onClick(() => this.onAdd(item))
-              }
+              Button(this.addingQuestionId === item.id ? '添加中...' : '加入本周')
+                .height(32).fontSize(11).backgroundColor('#2F6BFF')
+                .enabled(this.addingQuestionId === 0)
+                .onClick(() => this.onAdd(item))
             }.width('100%')
             Text(item.question).fontSize(13).fontColor('#344054').maxLines(2).width('100%')
             Text(item.recommendReason).fontSize(11).fontColor('#667085').width('100%')

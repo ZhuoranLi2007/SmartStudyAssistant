@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
-import { AppRoutes } from '../common/AppRoutes';
+import { AppRoutes, ProfileSetupRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { AppConfig } from '../common/AppConfig';
 import { LoginResult } from '../model/DomainModels';
@@ -14,6 +14,33 @@ export struct LoginPage {
   @State password: string = '';
   @State isLoading: boolean = false;
 
+  private async enterApp(token: string, userId: number, username: string, role: string,
+    studentProfileId: number, profileCompleted: boolean): Promise<void> {
+    AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, token);
+    AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, userId);
+    AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, username);
+    AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, role);
+    AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, studentProfileId);
+    AppStorage.setOrCreate<boolean>(AppStorageKeys.PROFILE_COMPLETED, profileCompleted);
+    const snapshot = new SessionSnapshot();
+    snapshot.token = token;
+    snapshot.userId = userId;
+    snapshot.username = username;
+    snapshot.role = role;
+    snapshot.studentProfileId = studentProfileId;
+    snapshot.profileCompleted = profileCompleted;
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SessionStorageService.save(context, snapshot);
+    this.appPathStack.clear();
+    if (!profileCompleted) {
+      const param: ProfileSetupRouteParam = new ProfileSetupRouteParam();
+      param.requireSetup = true;
+      this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, param);
+    } else {
+      this.appPathStack.pushPathByName(AppRoutes.HOME, null);
+    }
+  }
+
   private async login(): Promise<void> {
     if (!this.account.trim() || !this.password.trim()) {
       promptAction.showToast({ message: '请输入账号和密码' });
@@ -21,37 +48,24 @@ export struct LoginPage {
     }
     this.isLoading = true;
     try {
-      let token: string = 'demo-token';
-      let userId: number = 1;
-      let username: string = this.account;
-      let role: string = this.account.includes('student') ? 'student' : 'parent';
-      let studentProfileId: number = 0;
       if (AppConfig.USE_MOCK_DATA) {
         await new Promise<void>((resolve: () => void) => setTimeout(resolve, 350));
-        studentProfileId = 1;
-      } else {
-        const result: LoginResult = await AuthService.login(this.account, this.password);
-        token = result.accessToken;
-        userId = result.user.id;
-        username = result.user.username;
-        role = result.user.role;
-        studentProfileId = result.studentProfileId;
+        await this.enterApp('demo-token', 1, this.account, 'user', 1, true);
+        return;
       }
-      AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, token);
-      AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, userId);
-      AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, username);
-      AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, role);
-      AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, studentProfileId);
-      const snapshot = new SessionSnapshot();
-      snapshot.token = token;
-      snapshot.userId = userId;
-      snapshot.username = username;
-      snapshot.role = role;
-      snapshot.studentProfileId = studentProfileId;
-      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      await SessionStorageService.save(context, snapshot);
-      this.appPathStack.clear();
-      this.appPathStack.pushPathByName(AppRoutes.HOME, null);
+      const result: LoginResult = await AuthService.login(this.account, this.password);
+      if (result.studentProfileId <= 0) {
+        promptAction.showToast({ message: '账号缺少学习档案，请重新注册' });
+        return;
+      }
+      await this.enterApp(
+        result.accessToken,
+        result.user.id,
+        result.user.username,
+        result.user.role || 'user',
+        result.studentProfileId,
+        result.profileCompleted === true
+      );
     } catch (error) {
       promptAction.showToast({ message: '登录失败，请稍后重试' });
       console.error(`登录失败: ${JSON.stringify(error)}`);
@@ -73,7 +87,7 @@ export struct LoginPage {
             .fontSize(30)
             .fontWeight(FontWeight.Bold)
             .fontColor('#101828')
-          Text('让每一次选课都有依据')
+          Text('课程 · 试卷 · 计划 · 错题，一站完成')
             .fontSize(16)
             .fontColor('#667085')
           TextInput({ placeholder: '用户名或手机号', text: this.account })
@@ -100,10 +114,6 @@ export struct LoginPage {
               .fontWeight(FontWeight.Medium)
               .onClick(() => this.appPathStack.pushPathByName(AppRoutes.REGISTER, null))
           }
-          Text('演示账号可输入任意用户名和密码；用户名含 student 时进入学生角色。')
-            .fontSize(12)
-            .fontColor('#98A2B3')
-            .textAlign(TextAlign.Center)
         }
         .width('100%')
         .padding({ left: 28, right: 28, top: 70, bottom: 30 })

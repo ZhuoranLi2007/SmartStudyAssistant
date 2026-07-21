@@ -21,12 +21,14 @@ def paper_data(row: Paper) -> dict:
 @router.get("")
 async def list_papers(
     grade: str | None = Query(None), subject: str | None = Query(None), difficulty: str | None = Query(None),
+    keyword: str | None = Query(None),
     db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user),
 ):
     statement = select(Paper).where(Paper.is_active.is_(True))
     if grade: statement = statement.where(Paper.grade == grade)
     if subject: statement = statement.where(Paper.subject == subject)
     if difficulty: statement = statement.where(Paper.difficulty == difficulty)
+    if keyword: statement = statement.where(Paper.name.ilike(f"%{keyword}%"))
     rows = list((await db.scalars(statement.order_by(Paper.id))).all())
     return ok([paper_data(row) for row in rows])
 

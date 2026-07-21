@@ -16,6 +16,7 @@ interface StudentProfileResponse {
   learningGoal: string;
   weeklyStudyMinutes: number;
   bindCode: string | null;
+  profileCompleted: boolean;
   subjects: StudentSubjectItem[];
 }
 
@@ -56,7 +57,8 @@ export class StudentService {
       weakPoints: subject.weakPoints,
       learningGoal: data.learningGoal,
       weeklyStudyMinutes: data.weeklyStudyMinutes,
-      bindCode: data.bindCode || ''
+      bindCode: data.bindCode || '',
+      profileCompleted: data.profileCompleted === true
     };
   }
 

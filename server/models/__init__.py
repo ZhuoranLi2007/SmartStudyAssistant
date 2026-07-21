@@ -7,6 +7,7 @@ from .entities import (
     CourseOrder,
     Family,
     FamilyMember,
+    Favorite,
     Paper,
     PaperQuestion,
     PracticeAnswer,
@@ -25,6 +26,6 @@ from .entities import (
 __all__ = [
     "User", "Family", "FamilyMember", "StudentProfile", "StudentSubjectProfile", "Course", "Paper",
     "StudyTask", "ChatSession", "ChatMessage", "RecommendationRecord", "ToolCallLog", "CourseOrder",
-    "CourseEnrollment", "PaperQuestion", "PracticeAttempt", "PracticeAnswer", "WrongQuestion",
+    "CourseEnrollment", "Favorite", "PaperQuestion", "PracticeAttempt", "PracticeAnswer", "WrongQuestion",
     "RagDocument", "RagChunk", "AIRequest",
 ]

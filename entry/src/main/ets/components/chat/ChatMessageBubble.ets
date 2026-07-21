@@ -3,7 +3,6 @@ import { ChatAvatar } from './ChatAvatar';
 import { ChatSourceList } from './ChatSourceList';
 import { CourseRecommendationCard } from './CourseRecommendationCard';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { OrderCard } from './OrderCard';
 import { PaperRecommendationCard } from './PaperRecommendationCard';
 import { StudyPlanCard } from './StudyPlanCard';
 import { TypingIndicator } from './TypingIndicator';
@@ -11,7 +10,8 @@ import { TypingIndicator } from './TypingIndicator';
 @Component
 export struct ChatMessageBubble {
   @Prop message: ChatMessage;
-  onRead: (content: string) => void = (_content: string): void => {};
+  @Prop speakingMessageId: string = '';
+  onRead: (content: string, messageId: string) => void = (_content: string, _messageId: string): void => {};
   onRetry: (message: ChatMessage) => void = (_message: ChatMessage): void => {};
 
   @Builder
@@ -25,8 +25,6 @@ export struct ChatMessageBubble {
             PaperRecommendationCard({ card: card })
           } else if (card.type === AiCardType.STUDY_PLAN) {
             StudyPlanCard({ card: card })
-          } else if (card.type === AiCardType.ORDER) {
-            OrderCard({ card: card })
           }
         }, (card: AiCard, index: number) => `${card.type}_${card.id}_${index}`)
       }.width('100%')
@@ -61,7 +59,9 @@ export struct ChatMessageBubble {
             }
             if (!this.message.isStreaming && this.message.content) {
               Row() {
-                Text('朗读').fontSize(10).fontColor('#667085').onClick(() => this.onRead(this.message.content))
+                Text(this.speakingMessageId === this.message.id ? '停止朗读' : '朗读')
+                  .fontSize(10).fontColor('#667085')
+                  .onClick(() => this.onRead(this.message.content, this.message.id))
               }.width('100%')
             }
           }

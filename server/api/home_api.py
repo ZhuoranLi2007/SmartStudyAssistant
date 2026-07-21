@@ -55,8 +55,9 @@ async def _accessible_profile(
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
-    if user.role == "student":
-        return await db.scalar(select(StudentProfile).where(StudentProfile.student_user_id == user.id))
+    profile = await db.scalar(select(StudentProfile).where(StudentProfile.student_user_id == user.id))
+    if profile is not None:
+        return profile
     family_id = await get_user_family_id(db, user.id)
     if family_id is None:
         return None

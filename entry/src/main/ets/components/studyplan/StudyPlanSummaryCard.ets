@@ -1,21 +1,12 @@
-import { StudyPlanSummary } from '../../model/StudyPlanModels';
-
 @Component
 export struct StudyPlanSummaryCard {
   @Prop studentName: string = '';
   @Prop weekLabel: string = '';
-  @Prop summary: StudyPlanSummary = {
-    totalCount: 0, completedCount: 0, courseCount: 0, paperCount: 0,
-    wrongQuestionCount: 0, unmasteredWrongQuestionCount: 0, totalMinutes: 0, progress: 0
-  };
-
-  @Builder
-  private metric(value: number, label: string) {
-    Column({ space: 4 }) {
-      Text(`${value}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033')
-      Text(label).fontSize(11).fontColor('#667085')
-    }.layoutWeight(1)
-  }
+  @Prop totalCount: number = 0;
+  @Prop completedCount: number = 0;
+  @Prop courseCount: number = 0;
+  @Prop paperCount: number = 0;
+  @Prop progress: number = 0;
 
   build() {
     Column({ space: 14 }) {
@@ -25,23 +16,27 @@ export struct StudyPlanSummaryCard {
             .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#172033')
           Text(this.weekLabel).fontSize(12).fontColor('#667085')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Text(`${this.summary.progress}%`).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#2F6BFF')
+        Text(`${this.progress}%`).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#2F6BFF')
       }.width('100%')
-      Progress({ value: this.summary.progress, total: 100, type: ProgressType.Linear })
+      Progress({ value: this.progress, total: 100, type: ProgressType.Linear })
         .color('#2F6BFF').backgroundColor('#DFE7F8').width('100%')
       Row() {
-        this.metric(this.summary.totalCount, '总任务')
-        this.metric(this.summary.completedCount, '已完成')
-        this.metric(this.summary.courseCount, '课程')
-        this.metric(this.summary.paperCount, '试卷')
-      }.width('100%')
-      Row() {
-        Text(`错题任务 ${this.summary.wrongQuestionCount} 项`).fontSize(12).fontColor('#7A5AF8').layoutWeight(1)
-        Text(`待掌握 ${this.summary.unmasteredWrongQuestionCount} 题`).fontSize(12).fontColor('#D92D20')
-      }.width('100%')
-      Row() {
-        Text('本周计划时长').fontSize(12).fontColor('#667085').layoutWeight(1)
-        Text(`${this.summary.totalMinutes} 分钟`).fontSize(13).fontWeight(FontWeight.Medium).fontColor('#344054')
+        Column({ space: 4 }) {
+          Text(`${this.totalCount}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033')
+          Text('总任务').fontSize(11).fontColor('#667085')
+        }.layoutWeight(1)
+        Column({ space: 4 }) {
+          Text(`${this.completedCount}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033')
+          Text('已完成').fontSize(11).fontColor('#667085')
+        }.layoutWeight(1)
+        Column({ space: 4 }) {
+          Text(`${this.courseCount}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033')
+          Text('课程').fontSize(11).fontColor('#667085')
+        }.layoutWeight(1)
+        Column({ space: 4 }) {
+          Text(`${this.paperCount}`).fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033')
+          Text('试卷').fontSize(11).fontColor('#667085')
+        }.layoutWeight(1)
       }.width('100%')
     }
     .padding(16).width('100%').backgroundColor('#F4F7FF').borderRadius(18)
