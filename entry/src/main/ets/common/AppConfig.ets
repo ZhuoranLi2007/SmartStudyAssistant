@@ -1,6 +1,6 @@
 export class AppConfig {
   static readonly API_BASE_URL: string =
-    'http://10.132.159.6:8000/api';
+    'http://10.136.118.140:8000/api';
 
   static readonly USE_MOCK_DATA: boolean = false;
   static readonly ENABLE_SSE: boolean = true;

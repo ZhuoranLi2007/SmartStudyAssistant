@@ -3,6 +3,7 @@ import { PageHeader } from '../components/PageHeader';
 import { Course } from '../model/DomainModels';
 import { MockDataService } from '../service/MockDataService';
 import { AppStorageKeys } from '../common/AppStorageKeys';
+import { CourseVideoResolver } from '../common/CourseVideoResolver';
 import { StudyPlanService } from '../service/StudyPlanService';
 
 @Component
@@ -11,7 +12,17 @@ export struct CourseDetailPage {
   @StorageLink(AppStorageKeys.USER_ROLE) role: string = 'parent';
   @Prop courseId: number = 1;
   @State isAdding: boolean = false;
+  @State videoLoadFailed: boolean = false;
   private course: Course = MockDataService.getCourse(this.courseId);
+  private videoController: VideoController = new VideoController();
+
+  aboutToDisappear(): void {
+    try {
+      this.videoController.stop();
+    } catch (error) {
+      console.warn(`停止课程视频失败: ${JSON.stringify(error)}`);
+    }
+  }
 
   private async addTask(): Promise<void> {
     if (this.isAdding) return;
@@ -37,7 +48,31 @@ export struct CourseDetailPage {
         PageHeader({ title: '课程详情' })
         Scroll() {
           Column({ space: 18 }) {
-            Image($r('app.media.realImageGen_education_6')).width('100%').height(210).borderRadius(20).objectFit(ImageFit.Cover)
+            if (this.videoLoadFailed) {
+              Image(CourseVideoResolver.resolvePreview(this.course))
+                .width('100%')
+                .aspectRatio(16 / 9)
+                .borderRadius(20)
+                .objectFit(ImageFit.Cover)
+            } else {
+              Video({
+                src: CourseVideoResolver.resolve(this.course),
+                previewUri: CourseVideoResolver.resolvePreview(this.course),
+                controller: this.videoController
+              })
+                .width('100%')
+                .aspectRatio(16 / 9)
+                .borderRadius(20)
+                .backgroundColor('#000000')
+                .objectFit(ImageFit.Contain)
+                .autoPlay(false)
+                .controls(true)
+                .loop(false)
+                .onError(() => {
+                  this.videoLoadFailed = true;
+                  promptAction.showToast({ message: '课程视频加载失败，已显示课程封面' });
+                })
+            }
             Text(this.course.name).fontSize(26).fontWeight(FontWeight.Bold).width('100%')
             Text(`${this.course.grade} · ${this.course.subject} · ${this.course.level}`).fontColor('#2F6BFF').width('100%')
             Text(this.course.description).fontSize(16).fontColor('#475467').lineHeight(25).width('100%')
