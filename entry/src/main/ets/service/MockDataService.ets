@@ -132,7 +132,9 @@ export class MockDataService {
           difficulty: levelIndex === 0 ? '基础' : levelIndex === 1 ? '中等' : '较难',
           suitableFor: levelIndex === 0 ? '基础知识需要巩固的学生' : levelIndex === 1 ? '希望稳定提高成绩的学生' : '成绩优秀且希望拓展的学生',
           knowledgePoints: MockDataService.knowledgePoints(grade, subject),
-          description: `围绕${grade}${subject}核心知识点设计的${level}课程，包含讲解、例题与阶段练习。`
+          description: `围绕${grade}${subject}核心知识点设计的${level}课程，包含讲解、例题与阶段练习。`,
+          price: levelIndex === 0 ? 69 : levelIndex === 1 ? 99 : 139,
+          totalLessons: 12 + levelIndex * 4
         });
         id++;
       }

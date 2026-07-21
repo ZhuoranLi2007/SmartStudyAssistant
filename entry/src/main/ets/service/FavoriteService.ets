@@ -1,30 +1,90 @@
-import { AppConfig } from '../common/AppConfig';
+import { common } from '@kit.AbilityKit';
+import { preferences } from '@kit.ArkData';
+import { AppStorageKeys } from '../common/AppStorageKeys';
+import { CourseVideoResolver } from '../common/CourseVideoResolver';
 import { ProfileMockData } from '../data/ProfileMockData';
+import { Course } from '../model/DomainModels';
 import { DataLoadResult, DataSource, FavoriteItem, FavoriteType } from '../model/ProfileModels';
-import { HttpClient } from './HttpClient';
 
 export class FavoriteService {
-  static async getFavorites(type: FavoriteType): Promise<DataLoadResult<FavoriteItem[]>> {
-    if (AppConfig.USE_MOCK_DATA) return ProfileMockData.mockResult<FavoriteItem[]>(ProfileMockData.getFavorites(type));
+  private static readonly STORE_NAME: string = 'smartstudy_favorites';
+
+  private static userKey(): string {
+    const userId: number = AppStorage.get<number>(AppStorageKeys.USER_ID) || 0;
+    return `favorites_${userId}`;
+  }
+
+  private static async writeAll(context: common.UIAbilityContext, items: FavoriteItem[]): Promise<void> {
+    const store = await preferences.getPreferences(context, { name: FavoriteService.STORE_NAME });
+    await store.put(FavoriteService.userKey(), JSON.stringify(items));
+    await store.flush();
+  }
+
+  private static async readAll(context: common.UIAbilityContext): Promise<FavoriteItem[]> {
+    const store = await preferences.getPreferences(context, { name: FavoriteService.STORE_NAME });
+    const raw: string = await store.get(FavoriteService.userKey(), '') as string;
+    if (!raw) {
+      const initial: FavoriteItem[] = ProfileMockData.getAllFavorites();
+      await FavoriteService.writeAll(context, initial);
+      return initial;
+    }
     try {
-      const data: FavoriteItem[] = (await HttpClient.get<FavoriteItem[]>(`/favorites?type=${type}`)).data;
-      return { data: data, source: DataSource.LIVE, message: '' };
+      return JSON.parse(raw) as FavoriteItem[];
     } catch (error) {
-      console.warn(`收藏接口不可用，使用演示数据: ${JSON.stringify(error)}`);
-      return ProfileMockData.mockResult<FavoriteItem[]>(ProfileMockData.getFavorites(type));
+      console.warn(`收藏数据解析失败，恢复演示收藏: ${JSON.stringify(error)}`);
+      const fallback: FavoriteItem[] = ProfileMockData.getAllFavorites();
+      await FavoriteService.writeAll(context, fallback);
+      return fallback;
     }
   }
 
-  static async removeFavorite(id: number): Promise<DataSource> {
-    if (!AppConfig.USE_MOCK_DATA) {
-      try {
-        await HttpClient.delete<Object>(`/favorites/${id}`);
-        return DataSource.LIVE;
-      } catch (error) {
-        console.warn(`取消收藏接口不可用，执行本地演示操作: ${JSON.stringify(error)}`);
-      }
+  static async getFavorites(context: common.UIAbilityContext,
+    type: FavoriteType): Promise<DataLoadResult<FavoriteItem[]>> {
+    const items: FavoriteItem[] = await FavoriteService.readAll(context);
+    return {
+      data: items.filter((item: FavoriteItem) => item.type === type),
+      source: DataSource.LOCAL,
+      message: '收藏保存在当前设备'
+    };
+  }
+
+  static async getCourseFavorite(context: common.UIAbilityContext, courseId: number): Promise<FavoriteItem | null> {
+    const items: FavoriteItem[] = await FavoriteService.readAll(context);
+    for (let index: number = 0; index < items.length; index++) {
+      if (items[index].type === FavoriteType.COURSE && items[index].targetId === courseId) return items[index];
     }
-    ProfileMockData.removeFavorite(id);
-    return DataSource.MOCK;
+    return null;
+  }
+
+  static async addCourseFavorite(context: common.UIAbilityContext, course: Course): Promise<FavoriteItem> {
+    const items: FavoriteItem[] = await FavoriteService.readAll(context);
+    for (let index: number = 0; index < items.length; index++) {
+      if (items[index].type === FavoriteType.COURSE && items[index].targetId === course.id) return items[index];
+    }
+    const favoriteId: number = Date.now();
+    const item: FavoriteItem = {
+      id: favoriteId,
+      favoriteId: favoriteId,
+      targetId: course.id,
+      type: FavoriteType.COURSE,
+      title: course.name,
+      subtitle: `${course.grade} · ${course.subject}`,
+      tag: course.level,
+      grade: course.grade,
+      subject: course.subject,
+      level: course.level,
+      coverKey: CourseVideoResolver.previewKey(course),
+      createdAt: `${Date.now()}`
+    };
+    items.push(item);
+    await FavoriteService.writeAll(context, items);
+    return item;
+  }
+
+  static async removeFavorite(context: common.UIAbilityContext, id: number): Promise<DataSource> {
+    const items: FavoriteItem[] = await FavoriteService.readAll(context);
+    const next: FavoriteItem[] = items.filter((item: FavoriteItem) => item.id !== id);
+    await FavoriteService.writeAll(context, next);
+    return DataSource.LOCAL;
   }
 }

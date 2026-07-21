@@ -44,6 +44,8 @@ export interface Course {
   suitableFor: string;
   knowledgePoints: string[];
   description: string;
+  price: number;
+  totalLessons: number;
 }
 
 export interface Paper {

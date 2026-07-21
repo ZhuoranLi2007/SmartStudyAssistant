@@ -21,9 +21,15 @@ export class ProfileMockData {
   ];
 
   private static favorites: FavoriteItem[] = [
-    { id: 1, targetId: 5, type: FavoriteType.COURSE, title: '六年级数学应用题提升课', subtitle: '六年级 · 数学', tag: '中等提升型' },
-    { id: 2, targetId: 10, type: FavoriteType.PAPER, title: '六年级数学百分数专项卷', subtitle: '20题 · 中等', tag: '百分数' },
-    { id: 3, targetId: 0, type: FavoriteType.KNOWLEDGE, title: '行程问题', subtitle: '数学重点知识', tag: '六年级' }
+    { id: 1, favoriteId: 1, targetId: 5, type: FavoriteType.COURSE, title: '六年级数学应用题提升课',
+      subtitle: '六年级 · 数学', tag: '中等提升型', grade: '六年级', subject: '数学', level: '中等提升型',
+      coverKey: 'Maths2_cover', createdAt: '2026-07-19T09:30:00' },
+    { id: 2, favoriteId: 2, targetId: 10, type: FavoriteType.PAPER, title: '六年级数学百分数专项卷',
+      subtitle: '20题 · 中等', tag: '百分数', grade: '六年级', subject: '数学', level: '中等',
+      coverKey: 'Math1_cover', createdAt: '2026-07-18T15:20:00' },
+    { id: 3, favoriteId: 3, targetId: 0, type: FavoriteType.KNOWLEDGE, title: '行程问题',
+      subtitle: '数学重点知识', tag: '六年级', grade: '六年级', subject: '数学', level: '',
+      coverKey: 'Math1_cover', createdAt: '2026-07-17T11:05:00' }
   ];
 
   private static wrongQuestions: WrongQuestion[] = [
@@ -55,6 +61,10 @@ export class ProfileMockData {
 
   static getFavorites(type: FavoriteType): FavoriteItem[] {
     return ProfileMockData.favorites.filter((item: FavoriteItem) => item.type === type);
+  }
+
+  static getAllFavorites(): FavoriteItem[] {
+    return ProfileMockData.favorites.slice();
   }
 
   static removeFavorite(id: number): void {

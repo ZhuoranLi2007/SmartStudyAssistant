@@ -19,6 +19,7 @@ export enum FavoriteType {
 
 export enum DataSource {
   LIVE = 'LIVE',
+  LOCAL = 'LOCAL',
   MOCK = 'MOCK'
 }
 
@@ -72,11 +73,17 @@ export interface CourseOrder {
 
 export interface FavoriteItem {
   id: number;
+  favoriteId: number;
   targetId: number;
   type: FavoriteType;
   title: string;
   subtitle: string;
   tag: string;
+  grade: string;
+  subject: string;
+  level: string;
+  coverKey: string;
+  createdAt: string;
 }
 
 export interface WrongQuestion {

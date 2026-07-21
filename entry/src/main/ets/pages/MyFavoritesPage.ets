@@ -1,5 +1,7 @@
+import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
+import { CourseVideoResolver } from '../common/CourseVideoResolver';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { DataLoadResult, DataSource, FavoriteItem, FavoriteType } from '../model/ProfileModels';
@@ -15,10 +17,14 @@ export struct MyFavoritesPage {
 
   aboutToAppear(): void { void this.load(); }
 
+  private context(): common.UIAbilityContext {
+    return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
   private async load(): Promise<void> {
     if (this.isLoading) return; this.isLoading = true;
     try {
-      const result: DataLoadResult<FavoriteItem[]> = await FavoriteService.getFavorites(this.type);
+      const result: DataLoadResult<FavoriteItem[]> = await FavoriteService.getFavorites(this.context(), this.type);
       this.items = result.data; this.source = result.source;
     } finally { this.isLoading = false; }
   }
@@ -32,7 +38,7 @@ export struct MyFavoritesPage {
   }
 
   private async remove(id: number): Promise<void> {
-    this.source = await FavoriteService.removeFavorite(id);
+    this.source = await FavoriteService.removeFavorite(this.context(), id);
     promptAction.showToast({ message: '已取消收藏' });
     await this.load();
   }
@@ -56,8 +62,14 @@ export struct MyFavoritesPage {
             ForEach(this.items, (item: FavoriteItem) => {
               ListItem() {
                 Row({ space: 12 }) {
-                  Text(item.type === FavoriteType.COURSE ? '课' : item.type === FavoriteType.PAPER ? '卷' : '知')
-                    .width(44).height(44).fontSize(16).fontWeight(FontWeight.Bold).textAlign(TextAlign.Center).fontColor('#2F6BFF').backgroundColor('#EEF4FF').borderRadius(12)
+                  if (item.type === FavoriteType.COURSE) {
+                    Image(CourseVideoResolver.resolvePreviewByKey(item.coverKey))
+                      .width(54).height(54).objectFit(ImageFit.Cover).borderRadius(12)
+                  } else {
+                    Text(item.type === FavoriteType.PAPER ? '卷' : '知')
+                      .width(44).height(44).fontSize(16).fontWeight(FontWeight.Bold).textAlign(TextAlign.Center)
+                      .fontColor('#2F6BFF').backgroundColor('#EEF4FF').borderRadius(12)
+                  }
                   Column({ space: 5 }) {
                     Text(item.title).fontSize(15).fontWeight(FontWeight.Bold)
                     Text(`${item.subtitle} · ${item.tag}`).fontSize(12).fontColor('#667085')
@@ -68,7 +80,7 @@ export struct MyFavoritesPage {
             }, (item: FavoriteItem) => `${item.id}`)
           }.layoutWeight(1).padding({ left: 16, right: 16, bottom: 20 }).width('100%')
         }
-        if (this.source === DataSource.MOCK) Text('收藏内容为演示数据').fontSize(11).fontColor('#98A2B3').margin({ bottom: 10 })
+        if (this.source === DataSource.LOCAL) Text('收藏保存在当前设备').fontSize(11).fontColor('#98A2B3').margin({ bottom: 10 })
       }.width('100%').height('100%').backgroundColor('#F2F4F7')
     }.hideTitleBar(true)
   }
