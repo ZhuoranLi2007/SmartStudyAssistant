@@ -9,6 +9,7 @@ from server.api import (
     favorites_api,
     home_api,
     papers_api,
+    speech_api,
     students_api,
     study_plan_api,
 )
@@ -24,3 +25,4 @@ api_router.include_router(home_api.router)
 api_router.include_router(chat_api.router)
 api_router.include_router(ai_api.router)
 api_router.include_router(favorites_api.router)
+api_router.include_router(speech_api.router)

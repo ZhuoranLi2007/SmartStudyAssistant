@@ -13,3 +13,8 @@ openai>=2.46,<3
 scikit-learn>=1.9,<2
 pytest>=8,<9
 pytest-asyncio>=0.23,<1
+# 语音识别依赖
+SpeechRecognition>=3.10,<4
+pydub>=0.25,<1
+vosk>=0.3.45,<1
+requests>=2.31,<3
