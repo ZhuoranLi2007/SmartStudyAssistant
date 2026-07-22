@@ -14,6 +14,7 @@ import { CourseDetailData } from '../model/CourseDetailModels';
 import { Course, StudyTask } from '../model/DomainModels';
 import { DataLoadResult, DataSource, FavoriteItem } from '../model/ProfileModels';
 import { CourseDetailService } from '../service/CourseDetailService';
+import { CourseService } from '../service/CourseService';
 import { FavoriteService } from '../service/FavoriteService';
 import { MockDataService } from '../service/MockDataService';
 import { StudyPlanService } from '../service/StudyPlanService';
@@ -31,6 +32,8 @@ export struct CourseDetailPage {
   @State isFavorite: boolean = false;
   @State favoriteId: number = 0;
   @State favoriteBusy: boolean = false;
+  @State isEnrolled: boolean = false;
+  @State enrollBusy: boolean = false;
   @State isAdding: boolean = false;
   @State isAdded: boolean = false;
 
@@ -45,11 +48,9 @@ export struct CourseDetailPage {
   private async initialize(): Promise<void> {
     if (this.isLoading) return;
     const local: Course | null = CourseDetailService.localCourse(this.courseId);
-    if (local === null) {
-      this.loadError = '课程信息不存在或路由参数无效';
-      return;
+    if (local !== null) {
+      this.detail = CourseDetailMockData.build(local);
     }
-    this.detail = CourseDetailMockData.build(local);
     this.loadError = '';
     this.isLoading = true;
     try {
@@ -57,6 +58,7 @@ export struct CourseDetailPage {
       this.detail = result.data;
       this.dataSource = result.source;
       await this.restoreFavorite();
+      await this.restoreEnrollState();
       await this.restorePlanState();
     } catch (error) {
       this.loadError = `课程加载失败：${error}`;
@@ -75,6 +77,14 @@ export struct CourseDetailPage {
     }
   }
 
+  private async restoreEnrollState(): Promise<void> {
+    try {
+      this.isEnrolled = await CourseService.isEnrolled(this.courseId);
+    } catch (error) {
+      this.isEnrolled = false;
+    }
+  }
+
   private async restorePlanState(): Promise<void> {
     if (this.studentProfileId <= 0) {
       this.isAdded = false;
@@ -90,6 +100,10 @@ export struct CourseDetailPage {
 
   private async toggleFavorite(): Promise<void> {
     if (this.favoriteBusy || this.loadError) return;
+    if (this.studentProfileId <= 0) {
+      promptAction.showToast({ message: '请先创建或绑定学生档案' });
+      return;
+    }
     this.favoriteBusy = true;
     try {
       if (this.isFavorite) {
@@ -104,20 +118,52 @@ export struct CourseDetailPage {
         promptAction.showToast({ message: '已收藏课程' });
       }
     } catch (error) {
-      promptAction.showToast({ message: '收藏操作失败，请稍后重试' });
+      const message: string = `${error}`;
+      if (message.includes('档案')) {
+        promptAction.showToast({ message: '请先完善学生档案后再收藏' });
+      } else if (message.includes('HTTP 404')) {
+        promptAction.showToast({ message: '收藏服务未就绪，请重启后端后再试' });
+      } else if (message.includes('HTTP 403')) {
+        promptAction.showToast({ message: '无权收藏，请重新登录' });
+      } else {
+        promptAction.showToast({ message: '收藏操作失败，请稍后重试' });
+      }
+      console.error(`收藏操作失败: ${message}`);
     } finally {
       this.favoriteBusy = false;
     }
   }
 
-  private async addTask(): Promise<void> {
-    if (this.isAdding || this.isAdded || this.role !== 'parent') return;
+  private async enrollCourse(): Promise<void> {
+    if (this.enrollBusy || this.isEnrolled) return;
     if (this.studentProfileId <= 0) {
       promptAction.showToast({ message: '请先创建或绑定学生档案' });
       return;
     }
+    this.enrollBusy = true;
+    try {
+      await CourseService.enroll(this.detail.course.id);
+      this.isEnrolled = true;
+      promptAction.showToast({ message: '已加入我的课程，可观看视频' });
+    } catch (error) {
+      promptAction.showToast({ message: '报名失败，请稍后重试' });
+    } finally {
+      this.enrollBusy = false;
+    }
+  }
+
+  private async addTask(): Promise<void> {
+    if (this.isAdding || this.isAdded) return;
+    if (this.studentProfileId <= 0) {
+      promptAction.showToast({ message: '请先登录并完成注册' });
+      return;
+    }
     this.isAdding = true;
     try {
+      if (!this.isEnrolled) {
+        await CourseService.enroll(this.detail.course.id);
+        this.isEnrolled = true;
+      }
       await StudyPlanService.addTask(this.studentProfileId, '课程', this.detail.course.id);
       this.isAdded = true;
       promptAction.showToast({ message: '已加入本周学习计划' });
@@ -160,19 +206,17 @@ export struct CourseDetailPage {
                 onToggle: () => this.outlineExpanded = !this.outlineExpanded
               })
               CourseReviews({ rating: this.detail.rating, reviewCount: this.detail.reviewCount, reviews: this.detail.reviews })
-              if (this.dataSource === DataSource.MOCK) {
-                Text('价格与课程基础信息优先来自服务端，其余介绍内容为演示数据')
-                  .fontSize(10).fontColor('#98A2B3').textAlign(TextAlign.Center).width('100%')
-              }
             }.padding({ left: 16, right: 16, top: 12, bottom: 20 }).width('100%')
           }.layoutWeight(1).width('100%')
           CourseBottomBar({
-            role: this.role,
             isFavorite: this.isFavorite,
             favoriteBusy: this.favoriteBusy,
+            isEnrolled: this.isEnrolled,
+            enrollBusy: this.enrollBusy,
             isAdding: this.isAdding,
             isAdded: this.isAdded,
             onToggleFavorite: () => void this.toggleFavorite(),
+            onEnroll: () => void this.enrollCourse(),
             onAddPlan: () => void this.addTask()
           })
         }

@@ -1,66 +1,98 @@
-import { AppRoutes } from '../common/AppRoutes';
+import { AppRoutes, SearchRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
-import { AIRecommendCard } from '../components/home/AIRecommendCard';
-import { CourseHorizontalList } from '../components/home/CourseHorizontalList';
 import { EducationEntranceGrid } from '../components/home/EducationEntranceGrid';
-import { HomeBannerSwiper } from '../components/home/HomeBannerSwiper';
 import { HomeHeader } from '../components/home/HomeHeader';
-import { HomeLearningOverviewCard } from '../components/home/HomeLearningOverviewCard';
-import { LatestCourseSection } from '../components/home/LatestCourseSection';
-import { PaperTrainingSection } from '../components/home/PaperTrainingSection';
-import { TodayTaskCard } from '../components/home/TodayTaskCard';
 import { MainTabBar } from '../components/MainTabBar';
-import { MockHomeData } from '../data/MockHomeData';
-import { HomeData, HomeDataSource, HomeLoadResult } from '../model/HomeModels';
-import { HomeService } from '../service/HomeService';
 
 @Component
 export struct HomePage {
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
-  @State homeData: HomeData = MockHomeData.getHomeData();
-  @State dataSource: HomeDataSource = HomeDataSource.MOCK;
-  @State sourceMessage: string = '当前部分首页内容为演示数据';
-  @State isLoading: boolean = false;
+  @Consume('appPathStack') appPathStack: NavPathStack;
+  @State searchText: string = '';
 
-  aboutToAppear(): void { void this.loadHomeData(); }
+  private doSearch(): void {
+    const keyword: string = this.searchText.trim();
+    if (!keyword) return;
+    const param: SearchRouteParam = new SearchRouteParam();
+    param.keyword = keyword;
+    this.appPathStack.pushPathByName(AppRoutes.SEARCH_RESULT, param);
+  }
 
-  private async loadHomeData(): Promise<void> {
-    if (this.isLoading) return;
-    this.isLoading = true;
-    try {
-      const result: HomeLoadResult = await HomeService.getHomeData(this.studentProfileId);
-      this.homeData = result.data;
-      this.studentProfileId = result.data.studentProfileId;
-      this.dataSource = result.source;
-      this.sourceMessage = result.message;
-    } catch (error) {
-      console.error(`首页数据加载失败: ${JSON.stringify(error)}`);
-      this.homeData = MockHomeData.getHomeData();
-      this.dataSource = HomeDataSource.MOCK;
-      this.sourceMessage = '网络服务暂不可用，已展示本地演示内容';
-    } finally {
-      this.isLoading = false;
+  @Builder
+  private searchBar() {
+    Row({ space: 12 }) {
+      Text('🔍')
+        .fontSize(18)
+        .fontColor('#98A2B3')
+      TextInput({ placeholder: '搜索课程或试卷名称', text: this.searchText })
+        .placeholderColor('#98A2B3')
+        .fontSize(14)
+        .height(48)
+        .layoutWeight(1)
+        .backgroundColor(Color.Transparent)
+        .onChange((value: string) => this.searchText = value)
+        .onSubmit(() => this.doSearch())
+      Button('搜索')
+        .height(36)
+        .fontSize(13)
+        .backgroundColor('#2F6BFF')
+        .onClick(() => this.doSearch())
     }
+    .width('100%')
+    .padding({ left: 16, right: 8, top: 8, bottom: 8 })
+    .backgroundColor(Color.White)
+    .borderRadius(24)
+    .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetY: 2 })
+  }
+
+  @Builder
+  private startTodayCard() {
+    Column({ space: 12 }) {
+      Text('今日学习').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#172033').width('100%')
+      Stack({ alignContent: Alignment.TopEnd }) {
+        Row() {
+          Column({ space: 8 }) {
+            Text('开启今日学习').fontSize(21).fontWeight(FontWeight.Bold).fontColor(Color.White)
+            Text('查看今日学习任务，保持专注').fontSize(13).fontColor('rgba(255,255,255,0.92)')
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          Stack() {
+            Text('→').fontSize(20).fontColor('#2F6BFF').fontWeight(FontWeight.Bold)
+          }
+          .width(46)
+          .height(46)
+          .backgroundColor(Color.White)
+          .borderRadius(23)
+          .shadow({ radius: 10, color: 'rgba(0,0,0,0.15)', offsetY: 3 })
+        }
+        .width('100%')
+        .padding(20)
+        .linearGradient({
+          angle: 135,
+          colors: [['#2563EB', 0.0], ['#3B82F6', 0.45], ['#60A5FA', 1.0]]
+        })
+        .borderRadius(20)
+
+        Stack() {
+          Text('✦').fontSize(40).fontColor('rgba(255,255,255,0.22)')
+        }
+        .width(70)
+        .height(70)
+        .margin({ top: 8, right: 8 })
+      }
+      .width('100%')
+      .onClick(() => this.appPathStack.pushPathByName(AppRoutes.STUDY_PLAN, null))
+    }.width('100%')
   }
 
   build() {
     NavDestination() {
       Column() {
         Scroll() {
-          Column({ space: 15 }) {
+          Column({ space: 18 }) {
             HomeHeader()
-            HomeBannerSwiper({ banners: this.homeData.banners })
+            this.searchBar()
             EducationEntranceGrid()
-            HomeLearningOverviewCard({ overview: this.homeData.overview })
-            AIRecommendCard({ course: this.homeData.recommendedCourse })
-            CourseHorizontalList({ courses: this.homeData.popularCourses })
-            LatestCourseSection({ courses: this.homeData.latestCourses })
-            PaperTrainingSection({ papers: this.homeData.recommendedPapers })
-            TodayTaskCard({ task: this.homeData.todayTask })
-            if (this.dataSource === HomeDataSource.MOCK) {
-              Text(this.sourceMessage || '当前部分首页内容为演示数据')
-                .fontSize(11).fontColor('#98A2B3').lineHeight(18).width('100%')
-            }
+            this.startTodayCard()
           }.padding({ left: 16, right: 16, top: 12, bottom: 24 }).width('100%')
         }.layoutWeight(1).width('100%')
         MainTabBar({ activeRoute: AppRoutes.HOME })

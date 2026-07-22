@@ -34,7 +34,10 @@ export struct AiAssistantPage {
   @State sessionId: string = '';
   @State currentIntent: string = '';
   @State linkedStudentText: string = '';
+  @State speakingMessageId: string = '';
   private messageScroller: Scroller = new Scroller();
+  private asrTimeoutId: number = -1;
+  private asrHasResult: boolean = false;
 
   aboutToAppear(): void {
     void this.restoreHistory();
@@ -264,10 +267,18 @@ export struct AiAssistantPage {
     }
   }
 
+  private clearAsrTimeout(): void {
+    if (this.asrTimeoutId >= 0) {
+      clearTimeout(this.asrTimeoutId);
+      this.asrTimeoutId = -1;
+    }
+  }
+
   private async toggleVoice(): Promise<void> {
     if (this.isRecording) {
       speechAiService.stopListening();
       this.isRecording = false;
+      this.clearAsrTimeout();
       return;
     }
     if (!speechAiService.isAsrSupported()) {
@@ -280,24 +291,68 @@ export struct AiAssistantPage {
         promptAction.showToast({ message: '请允许使用麦克风' });
         return;
       }
+      this.inputText = '';
+      this.asrHasResult = false;
       this.isRecording = await speechAiService.startListening((text: string, isFinal: boolean, isLast: boolean) => {
+        this.asrHasResult = true;
         this.inputText = text;
-        if (isFinal || isLast) this.isRecording = false;
+        if (isFinal || isLast) {
+          this.isRecording = false;
+          this.clearAsrTimeout();
+          const question: string = text.trim();
+          if (question) {
+            void this.sendQuestion(question);
+          } else {
+            promptAction.showToast({ message: '未识别到有效内容' });
+          }
+        }
       }, (_code: number, message: string) => {
         this.isRecording = false;
+        this.clearAsrTimeout();
         promptAction.showToast({ message: `语音识别失败：${message}` });
       });
+      if (this.isRecording) {
+        promptAction.showToast({ message: '正在听，请说话…' });
+        this.asrTimeoutId = setTimeout(() => {
+          if (this.isRecording) {
+            speechAiService.stopListening();
+            this.isRecording = false;
+            if (!this.asrHasResult) {
+              promptAction.showToast({ message: '未检测到语音，请检查麦克风或网络' });
+            }
+          }
+        }, 30000);
+      }
     } catch (error) {
       this.isRecording = false;
+      this.clearAsrTimeout();
       promptAction.showToast({ message: '语音能力启动失败' });
     }
   }
 
-  private async readMessage(content: string): Promise<void> {
+  private async readMessage(content: string, messageId: string): Promise<void> {
+    if (this.speakingMessageId === messageId) {
+      speechAiService.stopSpeak();
+      this.speakingMessageId = '';
+      return;
+    }
+
+    // 正在朗读其他消息时，先停止再切到新消息
+    if (this.speakingMessageId !== '') {
+      speechAiService.stopSpeak();
+    }
+
+    this.speakingMessageId = messageId;
     try {
-      const success: boolean = await speechAiService.speak(content);
-      if (!success) promptAction.showToast({ message: '当前设备不支持语音播报' });
+      const success: boolean = await speechAiService.speak(content, () => {
+        this.speakingMessageId = '';
+      });
+      if (!success) {
+        this.speakingMessageId = '';
+        promptAction.showToast({ message: '当前设备不支持语音播报' });
+      }
     } catch (error) {
+      this.speakingMessageId = '';
       promptAction.showToast({ message: '语音播报失败' });
     }
   }
@@ -313,6 +368,7 @@ export struct AiAssistantPage {
   }
 
   aboutToDisappear(): void {
+    this.clearAsrTimeout();
     speechAiService.cancelListening();
     speechAiService.stopSpeak();
   }
@@ -361,7 +417,8 @@ export struct AiAssistantPage {
             ListItem() {
               ChatMessageBubble({
                 message: message,
-                onRead: (content: string): void => { void this.readMessage(content); },
+                speakingMessageId: this.speakingMessageId,
+                onRead: (content: string, messageId: string): void => { void this.readMessage(content, messageId); },
                 onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
               })
             }

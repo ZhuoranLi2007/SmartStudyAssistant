@@ -136,8 +136,6 @@ async def recommended_wrong_questions(
 @router.post("")
 async def add_task(payload: StudyTaskCreate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     await ensure_student_access(db, user, payload.student_profile_id)
-    if user.role != "parent":
-        raise HTTPException(status_code=403, detail="只有家长可以安排学习任务")
     if payload.task_type == "课程":
         target = await db.get(Course, payload.target_id)
     elif payload.task_type == "试卷":
@@ -187,8 +185,6 @@ async def update_status(task_id: int, payload: TaskStatusUpdate, db: AsyncSessio
     row = await db.get(StudyTask, task_id)
     if row is None: raise HTTPException(status_code=404, detail="学习任务不存在")
     await ensure_student_access(db, user, row.student_profile_id)
-    if user.role != "student":
-        raise HTTPException(status_code=403, detail="学习任务状态由学生账号更新")
     row.status = payload.status
     await db.commit()
     return ok(task_data(row), "任务状态已更新")
@@ -199,7 +195,6 @@ async def delete_task(task_id: int, db: AsyncSession = Depends(get_db), user: Us
     row = await db.get(StudyTask, task_id)
     if row is None: raise HTTPException(status_code=404, detail="学习任务不存在")
     await ensure_student_access(db, user, row.student_profile_id)
-    if user.role != "parent": raise HTTPException(status_code=403, detail="只有家长可以删除学习任务")
     await db.delete(row)
     await db.commit()
     return ok(None, "学习任务已删除")

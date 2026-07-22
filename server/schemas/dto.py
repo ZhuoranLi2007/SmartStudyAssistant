@@ -7,7 +7,7 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=2, max_length=50)
     phone: str = Field(min_length=6, max_length=20)
     password: str = Field(min_length=6, max_length=128)
-    role: Literal["parent", "student"] = "parent"
+    role: str = "user"
 
 
 class LoginRequest(BaseModel):
@@ -109,6 +109,23 @@ class PracticeAttemptCreate(BaseModel):
 
 class WrongQuestionMasteryUpdate(BaseModel):
     mastered: bool = True
+
+
+class WrongQuestionBatchItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    paper_id: int = Field(validation_alias=AliasChoices("paperId", "paper_id"))
+    question_id: int = Field(0, validation_alias=AliasChoices("questionId", "question_id"))
+    subject: str = ""
+    knowledge_point: str = Field("", validation_alias=AliasChoices("knowledgePoint", "knowledge_point"))
+    question_text: str = Field(validation_alias=AliasChoices("questionText", "question_text"))
+    user_answer: str = Field(validation_alias=AliasChoices("userAnswer", "user_answer"))
+    correct_answer: str = Field(validation_alias=AliasChoices("correctAnswer", "correct_answer"))
+    explanation: str = ""
+
+
+class WrongQuestionBatchCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    items: list[WrongQuestionBatchItem] = Field(default_factory=list, min_length=1, max_length=100)
 
 
 class WrongQuestionTrainingSubmit(BaseModel):

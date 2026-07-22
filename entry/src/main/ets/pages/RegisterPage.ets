@@ -1,7 +1,12 @@
+import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { PageHeader } from '../components/PageHeader';
 import { AppConfig } from '../common/AppConfig';
+import { AppRoutes, ProfileSetupRouteParam } from '../common/AppRoutes';
+import { AppStorageKeys } from '../common/AppStorageKeys';
+import { LoginResult } from '../model/DomainModels';
 import { AuthService } from '../service/AuthService';
+import { SessionSnapshot, SessionStorageService } from '../service/SessionStorageService';
 
 @Component
 export struct RegisterPage {
@@ -10,7 +15,6 @@ export struct RegisterPage {
   @State phone: string = '';
   @State password: string = '';
   @State confirmPassword: string = '';
-  @State role: string = 'parent';
   @State isLoading: boolean = false;
 
   private async register(): Promise<void> {
@@ -30,11 +34,31 @@ export struct RegisterPage {
     try {
       if (AppConfig.USE_MOCK_DATA) {
         await new Promise<void>((resolve: () => void) => setTimeout(resolve, 350));
-      } else {
-        await AuthService.register(this.username, this.phone, this.password, this.role);
+        promptAction.showToast({ message: '注册成功，请登录' });
+        this.appPathStack.pop();
+        return;
       }
-      promptAction.showToast({ message: '注册成功，请登录' });
-      this.appPathStack.pop();
+      const result: LoginResult = await AuthService.register(this.username, this.phone, this.password);
+      AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, result.accessToken);
+      AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, result.user.id);
+      AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, result.user.username);
+      AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, result.user.role || 'user');
+      AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, result.studentProfileId);
+      AppStorage.setOrCreate<boolean>(AppStorageKeys.PROFILE_COMPLETED, false);
+      const snapshot = new SessionSnapshot();
+      snapshot.token = result.accessToken;
+      snapshot.userId = result.user.id;
+      snapshot.username = result.user.username;
+      snapshot.role = result.user.role || 'user';
+      snapshot.studentProfileId = result.studentProfileId;
+      snapshot.profileCompleted = false;
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SessionStorageService.save(context, snapshot);
+      promptAction.showToast({ message: '注册成功，请完善学生档案' });
+      this.appPathStack.clear();
+      const param: ProfileSetupRouteParam = new ProfileSetupRouteParam();
+      param.requireSetup = true;
+      this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, param);
     } catch (error) {
       promptAction.showToast({ message: '注册失败，请稍后重试' });
       console.error(`注册失败: ${JSON.stringify(error)}`);
@@ -53,14 +77,8 @@ export struct RegisterPage {
             TextInput({ placeholder: '手机号', text: this.phone }).type(InputType.PhoneNumber).onChange((value: string) => this.phone = value)
             TextInput({ placeholder: '密码（至少6位）', text: this.password }).type(InputType.Password).onChange((value: string) => this.password = value)
             TextInput({ placeholder: '确认密码', text: this.confirmPassword }).type(InputType.Password).onChange((value: string) => this.confirmPassword = value)
-            Text('选择账号角色').width('100%').fontWeight(FontWeight.Medium)
-            Row({ space: 12 }) {
-              Button('家长账号').layoutWeight(1).backgroundColor(this.role === 'parent' ? '#2F6BFF' : '#D0D5DD').onClick(() => this.role = 'parent')
-              Button('学生账号').layoutWeight(1).backgroundColor(this.role === 'student' ? '#2F6BFF' : '#D0D5DD').onClick(() => this.role = 'student')
-            }
-            if (this.role === 'student') {
-              Text('学生注册后可在“我的”页面使用一次性绑定码关联家庭。').fontSize(13).fontColor('#667085')
-            }
+            Text('注册成功后需先填写学生档案，完成后才能使用应用。')
+              .fontSize(13).fontColor('#667085').width('100%')
             Button(this.isLoading ? '提交中...' : '注册')
               .width('100%')
               .enabled(!this.isLoading)

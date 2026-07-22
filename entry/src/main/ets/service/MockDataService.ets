@@ -13,7 +13,8 @@ export class MockDataService {
     weakPoints: ['应用题', '百分数'],
     learningGoal: '提高成绩',
     weeklyStudyMinutes: 180,
-    bindCode: 'STU-6A8K'
+    bindCode: 'STU-6A8K',
+    profileCompleted: true
   };
 
   private static isoDate(offset: number): string {
@@ -59,7 +60,8 @@ export class MockDataService {
       weakPoints: MockDataService.studentProfile.weakPoints.slice(),
       learningGoal: MockDataService.studentProfile.learningGoal,
       weeklyStudyMinutes: MockDataService.studentProfile.weeklyStudyMinutes,
-      bindCode: MockDataService.studentProfile.bindCode
+      bindCode: MockDataService.studentProfile.bindCode,
+      profileCompleted: MockDataService.studentProfile.profileCompleted
     };
   }
 
@@ -73,7 +75,8 @@ export class MockDataService {
       weakPoints: profile.weakPoints.slice(),
       learningGoal: profile.learningGoal,
       weeklyStudyMinutes: profile.weeklyStudyMinutes,
-      bindCode: profile.bindCode || MockDataService.studentProfile.bindCode
+      bindCode: profile.bindCode || MockDataService.studentProfile.bindCode,
+      profileCompleted: true
     };
     return MockDataService.getStudentProfile();
   }
@@ -114,26 +117,32 @@ export class MockDataService {
   }
 
   static getCourses(): Course[] {
-    const pairs: string[][] = MockDataService.catalogPairs();
+    const knowledgePoints: string[] = ['分数', '小数', '百分数', '应用题', '几何'];
     const levels: string[] = [CourseLevel.FOUNDATION, CourseLevel.IMPROVEMENT, CourseLevel.EXTENSION];
+    const difficulties: string[] = ['基础', '中等', '较难'];
+    const suitableFor: string[] = [
+      '基础知识需要巩固的学生',
+      '希望稳定提高成绩的学生',
+      '成绩优秀且希望拓展的学生'
+    ];
+    const prices: number[] = [69, 99, 139];
     const result: Course[] = [];
     let id: number = 1;
-    for (let pairIndex: number = 0; pairIndex < pairs.length; pairIndex++) {
-      const grade: string = pairs[pairIndex][0];
-      const subject: string = pairs[pairIndex][1];
-      for (let levelIndex: number = 0; levelIndex < levels.length; levelIndex++) {
+    for (let levelIndex: number = 0; levelIndex < levels.length; levelIndex++) {
+      for (let pointIndex: number = 0; pointIndex < knowledgePoints.length; pointIndex++) {
+        const point: string = knowledgePoints[pointIndex];
         const level: string = levels[levelIndex];
         result.push({
           id: id,
-          name: `${grade}${subject}${level.replace('型', '')}课`,
-          grade: grade,
-          subject: subject,
+          name: `${point}${level.replace('型', '')}课程`,
+          grade: '五年级',
+          subject: '数学',
           level: level,
-          difficulty: levelIndex === 0 ? '基础' : levelIndex === 1 ? '中等' : '较难',
-          suitableFor: levelIndex === 0 ? '基础知识需要巩固的学生' : levelIndex === 1 ? '希望稳定提高成绩的学生' : '成绩优秀且希望拓展的学生',
-          knowledgePoints: MockDataService.knowledgePoints(grade, subject),
-          description: `围绕${grade}${subject}核心知识点设计的${level}课程，包含讲解、例题与阶段练习。`,
-          price: levelIndex === 0 ? 69 : levelIndex === 1 ? 99 : 139,
+          difficulty: difficulties[levelIndex],
+          suitableFor: suitableFor[levelIndex],
+          knowledgePoints: [point],
+          description: `围绕五年级数学${point}知识点设计的${level}课程，包含讲解、例题与阶段练习。`,
+          price: prices[levelIndex],
           totalLessons: 12 + levelIndex * 4
         });
         id++;
@@ -143,21 +152,24 @@ export class MockDataService {
   }
 
   static getPapers(): Paper[] {
-    const courses: Course[] = MockDataService.getCourses();
+    const knowledgePoints: string[] = ['分数', '小数', '百分数', '应用题', '几何'];
+    const levels: string[] = [CourseLevel.FOUNDATION, CourseLevel.IMPROVEMENT, CourseLevel.EXTENSION];
+    const difficulties: string[] = ['基础', '中等', '较难'];
     const result: Paper[] = [];
     let id: number = 1;
-    for (let index: number = 0; index < courses.length; index++) {
-      const course: Course = courses[index];
-      for (let setIndex: number = 1; setIndex <= 2; setIndex++) {
+    for (let levelIndex: number = 0; levelIndex < levels.length; levelIndex++) {
+      for (let pointIndex: number = 0; pointIndex < knowledgePoints.length; pointIndex++) {
+        const point: string = knowledgePoints[pointIndex];
+        const level: string = levels[levelIndex];
         result.push({
           id: id,
-          name: `${course.grade}${course.subject}${course.level}训练卷${setIndex}`,
-          grade: course.grade,
-          subject: course.subject,
-          difficulty: course.difficulty,
-          knowledgePoints: course.knowledgePoints,
-          questionCount: setIndex === 1 ? 20 : 25,
-          suitableCourseLevel: course.level,
+          name: `${point}${level.replace('型', '')}题型`,
+          grade: '五年级',
+          subject: '数学',
+          difficulty: difficulties[levelIndex],
+          knowledgePoints: [point],
+          questionCount: 5,
+          suitableCourseLevel: level,
           ocrText: ''
         });
         id++;
@@ -224,7 +236,7 @@ export class MockDataService {
 
   static getRecommendedPapers(): RecommendedPaper[] {
     const papers: Paper[] = MockDataService.getPapers();
-    const ids: number[] = [14, 17, 18];
+    const ids: number[] = [14, 6, 15];
     const reasons: string[] = [
       '针对薄弱知识点应用题进行专项巩固',
       '补充分数与百分数综合训练',

@@ -35,7 +35,9 @@ export class PracticeService {
           questions.push({
             id: item.id, stem: item.stem,
             options: PracticeService.options(item.options), correctIndex: -1,
-            explanation: ''
+            explanation: '',
+            knowledgePoint: item.knowledgePoint || '综合',
+            subject: data.paper.subject || ''
           });
         }
         return { paperName: data.paper.name || '在线答题', questions: questions, live: true };

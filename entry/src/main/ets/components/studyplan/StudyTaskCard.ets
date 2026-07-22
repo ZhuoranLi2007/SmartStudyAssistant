@@ -3,7 +3,6 @@ import { StudyTask, TaskStatus } from '../../model/DomainModels';
 @Component
 export struct StudyTaskCard {
   @Prop task: StudyTask;
-  @Prop role: string = 'parent';
   @Prop operating: boolean = false;
   onOpen: (task: StudyTask) => void = (_task: StudyTask): void => {};
   onStart: (task: StudyTask) => void = (_task: StudyTask): void => {};
@@ -62,7 +61,7 @@ export struct StudyTaskCard {
       Row({ space: 8 }) {
         Button('查看详情').fontSize(12).height(34).backgroundColor('#E9EEF8').fontColor('#344054')
           .onClick(() => this.onOpen(this.task))
-        if (this.role === 'student' && this.task.status !== TaskStatus.COMPLETED) {
+        if (this.task.status !== TaskStatus.COMPLETED) {
           Button(this.task.taskType === '课程' ? '继续学习' : this.task.taskType === '错题' ? '开始复测' : '开始练习')
             .fontSize(12).height(34).backgroundColor('#2F6BFF').enabled(!this.operating)
             .onClick(() => this.onStart(this.task))
@@ -72,12 +71,10 @@ export struct StudyTaskCard {
           }
         }
         Blank().layoutWeight(1)
-        if (this.role === 'parent') {
-          Text('删除').fontSize(12).fontColor('#D92D20').onClick(() => this.onDelete(this.task))
-        }
+        Text('删除').fontSize(12).fontColor('#D92D20').onClick(() => this.onDelete(this.task))
       }.width('100%')
     }
     .padding(14).width('100%').backgroundColor(Color.White).borderRadius(16)
-    .border({ width: 1, color: '#EAECF0' })
+    .shadow({ radius: 8, color: '#14000000', offsetX: 0, offsetY: 2 })
   }
 }

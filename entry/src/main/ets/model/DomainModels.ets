@@ -32,6 +32,7 @@ export interface StudentProfile {
   learningGoal: string;
   weeklyStudyMinutes: number;
   bindCode: string;
+  profileCompleted: boolean;
 }
 
 export interface Course {
@@ -87,6 +88,7 @@ export interface LoginResult {
   accessToken: string;
   user: UserInfo;
   studentProfileId: number;
+  profileCompleted: boolean;
 }
 
 export interface ApiResponse<T> {

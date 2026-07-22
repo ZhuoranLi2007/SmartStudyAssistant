@@ -73,6 +73,8 @@ export interface PracticeQuestion {
   options: PracticeOption[];
   correctIndex: number;
   explanation: string;
+  knowledgePoint?: string;
+  subject?: string;
 }
 
 export interface HomeLoadResult {

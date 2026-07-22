@@ -40,12 +40,21 @@ export class ProfileMockData {
 
   static getOverview(): ProfileOverview {
     return {
-      familyCode: 'FAM-2026', studentBindCode: 'STU-6A8K', studentName: '小明', studentBound: true,
-      learning: { courseCount: 3, weeklyTaskCount: 5, favoriteCount: ProfileMockData.favorites.length, wrongQuestionCount: ProfileMockData.wrongQuestions.length }
+      familyCode: '', studentBindCode: '', studentName: '新用户', studentBound: true,
+      studentProfileId: 1,
+      learning: { courseCount: 0, weeklyTaskCount: 0, favoriteCount: 0, wrongQuestionCount: 0 }
     };
   }
 
   static getCourses(): MyCourse[] { return ProfileMockData.courses.slice(); }
+
+  static completeCourse(courseId: number): void {
+    for (let index: number = 0; index < ProfileMockData.courses.length; index++) {
+      if (ProfileMockData.courses[index].courseId === courseId) {
+        ProfileMockData.courses[index].completed = true;
+      }
+    }
+  }
 
   static getOrders(filter: OrderFilter): CourseOrder[] {
     if (filter === OrderFilter.ALL) return ProfileMockData.orders.slice();
@@ -80,6 +89,10 @@ export class ProfileMockData {
     for (let index: number = 0; index < ProfileMockData.wrongQuestions.length; index++) {
       if (ProfileMockData.wrongQuestions[index].id === id) ProfileMockData.wrongQuestions[index].mastered = true;
     }
+  }
+
+  static removeWrongQuestion(id: number): void {
+    ProfileMockData.wrongQuestions = ProfileMockData.wrongQuestions.filter((item: WrongQuestion) => item.id !== id);
   }
 
   static getRecommendedWrongQuestions(): RecommendedWrongQuestion[] {

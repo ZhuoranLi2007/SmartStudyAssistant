@@ -41,6 +41,7 @@ export interface ProfileOverview {
   studentBindCode: string;
   studentName: string;
   studentBound: boolean;
+  studentProfileId: number;
   learning: LearningOverview;
 }
 

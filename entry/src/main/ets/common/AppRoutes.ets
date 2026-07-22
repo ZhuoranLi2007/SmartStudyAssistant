@@ -11,7 +11,6 @@ export class AppRoutes {
   static readonly STUDY_PLAN: string = 'StudyPlanPage';
   static readonly PROFILE: string = 'ProfilePage';
   static readonly MY_COURSES: string = 'MyCoursesPage';
-  static readonly MY_ORDERS: string = 'MyOrdersPage';
   static readonly MY_FAVORITES: string = 'MyFavoritesPage';
   static readonly CUSTOMER_SERVICE: string = 'CustomerServicePage';
   static readonly SETTINGS: string = 'SettingsPage';
@@ -21,12 +20,16 @@ export class AppRoutes {
   static readonly FEEDBACK: string = 'FeedbackPage';
   static readonly PLATFORM_INFO: string = 'PlatformInfoPage';
   static readonly ONLINE_PRACTICE: string = 'OnlinePracticePage';
-  static readonly ORDER_DETAIL: string = 'OrderDetailPage';
   static readonly WRONG_QUESTION_TRAINING: string = 'WrongQuestionTrainingPage';
+  static readonly SEARCH_RESULT: string = 'SearchResultPage';
 }
 
 export class IdRouteParam {
   id: number = 0;
+}
+
+export class SearchRouteParam {
+  keyword: string = '';
 }
 
 export class StudentRouteParam {
@@ -34,8 +37,8 @@ export class StudentRouteParam {
   sessionId: string = '';
 }
 
-export class OrderRouteParam {
-  status: string = 'ALL';
+export class ProfileSetupRouteParam {
+  requireSetup: boolean = false;
 }
 
 export class PlatformInfoRouteParam {

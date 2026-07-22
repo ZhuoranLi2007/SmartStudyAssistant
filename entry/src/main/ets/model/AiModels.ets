@@ -170,6 +170,7 @@ export interface PaperQuestionsResult {
 export interface PaperSummary {
   id: number;
   name: string;
+  subject?: string;
 }
 
 export interface PracticeAttemptResult {
@@ -178,6 +179,8 @@ export interface PracticeAttemptResult {
   score: number;
   correctCount: number;
   questionCount: number;
+  wrongSavedCount?: number;
+  autoSavedToWrongBook?: boolean;
   results: PracticeQuestionResult[];
 }
 

@@ -4,4 +4,5 @@ export class AppStorageKeys {
   static readonly USERNAME: string = 'username';
   static readonly USER_ROLE: string = 'userRole';
   static readonly STUDENT_PROFILE_ID: string = 'studentProfileId';
+  static readonly PROFILE_COMPLETED: string = 'profileCompleted';
 }
