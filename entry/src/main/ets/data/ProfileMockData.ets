@@ -33,9 +33,9 @@ export class ProfileMockData {
   ];
 
   private static wrongQuestions: WrongQuestion[] = [
-    { id: 1, subject: '数学', knowledgePoint: '百分数', question: '一件商品降价20%后售价为80元，原价是多少？', userAnswer: '96元', correctAnswer: '100元', explanation: '现价是原价的80%，所以原价为80÷80%=100元。', mastered: false, wrongCount: 2 },
-    { id: 2, subject: '数学', knowledgePoint: '行程问题', question: '甲每小时走5千米，2.5小时走多少千米？', userAnswer: '10千米', correctAnswer: '12.5千米', explanation: '路程=速度×时间，即5×2.5=12.5千米。', mastered: false, wrongCount: 3 },
-    { id: 3, subject: '英语', knowledgePoint: '一般过去时', question: 'Yesterday, Tom ____ to school by bus.', userAnswer: 'go', correctAnswer: 'went', explanation: 'Yesterday表示过去时间，go的过去式是went。', mastered: true, wrongCount: 1 }
+    { id: 1, questionNo: 1, subject: '数学', knowledgePoint: '百分数', question: '一件商品降价20%后售价为80元，原价是多少？', userAnswer: '96元', correctAnswer: '100元', explanation: '现价是原价的80%，所以原价为80÷80%=100元。', mastered: false, wrongCount: 2 },
+    { id: 2, questionNo: 2, subject: '数学', knowledgePoint: '行程问题', question: '甲每小时走5千米，2.5小时走多少千米？', userAnswer: '10千米', correctAnswer: '12.5千米', explanation: '路程=速度×时间，即5×2.5=12.5千米。', mastered: false, wrongCount: 3 },
+    { id: 3, questionNo: 3, subject: '英语', knowledgePoint: '一般过去时', question: 'Yesterday, Tom ____ to school by bus.', userAnswer: 'go', correctAnswer: 'went', explanation: 'Yesterday表示过去时间，go的过去式是went。', mastered: true, wrongCount: 1 }
   ];
 
   static getOverview(): ProfileOverview {
@@ -113,7 +113,7 @@ export class ProfileMockData {
       ProfileMockData.wrongQuestions[0];
     const options: string[] = item.id === 1 ? ['80元', '96元', '100元', '120元'] :
       item.id === 2 ? ['10千米', '12千米', '12.5千米', '15千米'] : ['go', 'goes', 'went', 'going'];
-    return { id: item.id, questionId: item.id, subject: item.subject, knowledgePoint: item.knowledgePoint,
+    return { id: item.id, questionNo: item.questionNo, questionId: item.id, subject: item.subject, knowledgePoint: item.knowledgePoint,
       question: item.question, options: options, previousAnswer: item.userAnswer,
       wrongCount: item.wrongCount, mastered: item.mastered, live: false };
   }

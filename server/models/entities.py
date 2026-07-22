@@ -207,10 +207,14 @@ class Favorite(TimestampMixin, Base):
 
 class PaperQuestion(TimestampMixin, Base):
     __tablename__ = "paper_questions"
-    __table_args__ = (UniqueConstraint("paper_id", "sequence", name="uq_paper_question_sequence"),)
+    __table_args__ = (
+        UniqueConstraint("paper_id", "sequence", name="uq_paper_question_sequence"),
+        UniqueConstraint("question_no", name="uq_paper_question_no"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), index=True)
     sequence: Mapped[int] = mapped_column(Integer)
+    question_no: Mapped[int] = mapped_column(Integer, index=True, unique=True)
     stem: Mapped[str] = mapped_column(Text)
     options_json: Mapped[list[str]] = mapped_column(JSON, default=list)
     correct_index: Mapped[int] = mapped_column(Integer)
@@ -249,6 +253,7 @@ class WrongQuestion(TimestampMixin, Base):
     student_profile_id: Mapped[int] = mapped_column(ForeignKey("student_profiles.id", ondelete="CASCADE"), index=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), index=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("paper_questions.id"), index=True)
+    question_no: Mapped[int] = mapped_column(Integer, default=0, index=True)
     subject: Mapped[str] = mapped_column(String(20), index=True)
     knowledge_point: Mapped[str] = mapped_column(String(100), index=True)
     question_text: Mapped[str] = mapped_column(Text)

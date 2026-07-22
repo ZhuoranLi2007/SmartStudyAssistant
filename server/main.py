@@ -60,6 +60,9 @@ async def _ensure_schema_patches() -> None:
     patches = [
         "ALTER TABLE course_enrollments MODIFY COLUMN order_id INT NULL",
         "ALTER TABLE student_profiles ADD COLUMN profile_completed TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE paper_questions ADD COLUMN question_no INT NULL",
+        "ALTER TABLE wrong_questions ADD COLUMN question_no INT NOT NULL DEFAULT 0",
+        "ALTER TABLE paper_questions ADD UNIQUE KEY uq_paper_question_no (question_no)",
     ]
     for sql in patches:
         try:
@@ -67,6 +70,16 @@ async def _ensure_schema_patches() -> None:
                 await connection.execute(text(sql))
         except Exception as exc:
             logger.info("schema patch skipped or already applied: %s", exc)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("""
+                UPDATE wrong_questions wq
+                JOIN paper_questions pq ON wq.question_id = pq.id
+                SET wq.question_no = pq.question_no
+                WHERE pq.question_no > 0 AND wq.question_no = 0
+            """))
+    except Exception as exc:
+        logger.info("wrong_questions question_no repair skipped: %s", exc)
     await _ensure_favorites_table()
 
 
