@@ -9,8 +9,6 @@ import { PracticeOption, PracticeQuestion } from '../model/HomeModels';
 import { MockDataService } from '../service/MockDataService';
 import { PracticeService } from '../service/PracticeService';
 import { StudyPlanService } from '../service/StudyPlanService';
-import { WrongQuestionBatchItemRequest } from '../service/NetworkDtos';
-import { WrongQuestionService } from '../service/WrongQuestionService';
 
 @Component
 export struct OnlinePracticePage {
@@ -28,9 +26,6 @@ export struct OnlinePracticePage {
   @State loading: boolean = true;
   @State submitting: boolean = false;
   @State liveData: boolean = false;
-  @State wrongBookSaved: boolean = false;
-  @State savingWrongBook: boolean = false;
-  @State autoSavedWrongCount: number = 0;
 
   aboutToAppear(): void {
     void this.loadQuestions();
@@ -128,8 +123,6 @@ export struct OnlinePracticePage {
         this.questions = updated;
         this.score = Math.round(result.score);
         this.submitted = true;
-        this.autoSavedWrongCount = result.wrongSavedCount || this.wrongCount();
-        this.wrongBookSaved = false;
         await this.completePlanTask();
         return;
       } catch (error) {
@@ -146,7 +139,6 @@ export struct OnlinePracticePage {
     }
     this.score = this.questions.length > 0 ? Math.round(correctCount * 100 / this.questions.length) : 0;
     this.submitted = true;
-    this.wrongBookSaved = false;
     await this.completePlanTask();
   }
 
@@ -164,50 +156,6 @@ export struct OnlinePracticePage {
   private answerText(question: PracticeQuestion, index: number): string {
     if (index < 0 || index >= question.options.length) return '未作答';
     return `${question.options[index].label}. ${question.options[index].content}`;
-  }
-
-  private buildWrongItems(): WrongQuestionBatchItemRequest[] {
-    const items: WrongQuestionBatchItemRequest[] = [];
-    for (let index: number = 0; index < this.questions.length; index++) {
-      const question: PracticeQuestion = this.questions[index];
-      if (this.selectedAnswers[index] === question.correctIndex) continue;
-      const item = new WrongQuestionBatchItemRequest();
-      item.paperId = this.paperId;
-      item.questionId = question.id;
-      item.subject = question.subject || this.paperSubject || '数学';
-      item.knowledgePoint = question.knowledgePoint || '综合';
-      item.questionText = question.stem;
-      item.userAnswer = this.answerText(question, this.selectedAnswers[index]);
-      item.correctAnswer = this.answerText(question, question.correctIndex);
-      item.explanation = question.explanation || '';
-      items.push(item);
-    }
-    return items;
-  }
-
-  private async saveWrongBook(): Promise<void> {
-    if (this.savingWrongBook || this.wrongBookSaved) return;
-    const wrong: number = this.wrongCount();
-    if (wrong <= 0) {
-      promptAction.showToast({ message: '本次没有错题' });
-      return;
-    }
-    if (this.studentProfileId <= 0) {
-      promptAction.showToast({ message: '请先完善学生档案后再加入错题本' });
-      return;
-    }
-    this.savingWrongBook = true;
-    try {
-      const saved: number = await WrongQuestionService.addBatch(this.studentProfileId, this.buildWrongItems());
-      this.wrongBookSaved = true;
-      this.autoSavedWrongCount = saved;
-      promptAction.showToast({ message: `已将 ${saved} 道错题加入错题本` });
-    } catch (error) {
-      promptAction.showToast({ message: '加入错题本失败，请稍后重试' });
-      console.error(`加入错题本失败: ${error}`);
-    } finally {
-      this.savingWrongBook = false;
-    }
   }
 
   @Builder
@@ -275,18 +223,8 @@ export struct OnlinePracticePage {
 
               if (this.wrongCount() > 0) {
                 Column({ space: 10 }) {
-                  if (this.wrongBookSaved) {
-                    Text(`已加入错题本（${this.autoSavedWrongCount || this.wrongCount()} 道）`)
-                      .fontSize(13).fontColor('#027A48').width('100%')
-                  } else {
-                    Text(`发现 ${this.wrongCount()} 道错题，可一键加入错题本`)
-                      .fontSize(13).fontColor('#344054').width('100%')
-                    Button(this.savingWrongBook ? '加入中...' : `将错题加入错题本（${this.wrongCount()}）`)
-                      .width('100%').height(46).fontWeight(FontWeight.Bold)
-                      .backgroundColor('#F04438')
-                      .enabled(!this.savingWrongBook)
-                      .onClick(() => void this.saveWrongBook())
-                  }
+                  Text(`已自动将错题加入错题本（共 ${this.wrongCount()} 道）`)
+                    .fontSize(13).fontColor('#027A48').width('100%')
                 }.padding(14).width('100%').backgroundColor('#FFF5F5').borderRadius(16)
                   .border({ width: 1, color: '#FECDCA' })
               }
@@ -310,7 +248,7 @@ export struct OnlinePracticePage {
                 Text(this.questions[this.currentIndex].stem).fontSize(18).fontWeight(FontWeight.Bold).lineHeight(28).width('100%')
                 ForEach(this.questions[this.currentIndex].options, (option: PracticeOption, index: number) => {
                   this.optionItem(option, index)
-                }, (option: PracticeOption) => option.label)
+                }, (option: PracticeOption, index: number) => `${this.currentIndex}-${option.label}-${index}`)
               }.width('100%')
             }.layoutWeight(1).width('100%')
             Row({ space: 10 }) {

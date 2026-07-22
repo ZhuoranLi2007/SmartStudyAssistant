@@ -26,6 +26,7 @@ export interface RecommendedWrongQuestion {
 
 export interface WrongQuestionTraining {
   id: number;
+  questionNo: number;
   questionId: number;
   subject: string;
   knowledgePoint: string;

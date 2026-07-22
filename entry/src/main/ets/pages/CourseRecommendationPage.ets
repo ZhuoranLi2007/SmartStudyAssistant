@@ -70,7 +70,7 @@ export struct CourseRecommendationPage {
     NavDestination() {
       Column() {
         PageHeader({ title: '查看课程' })
-        Search({ placeholder: '搜索课程名称、科目或知识点', value: this.searchText })
+        Search({ placeholder: '搜索课程名称', value: this.searchText })
           .height(44)
           .margin({ left: 16, right: 16, bottom: 12 })
           .backgroundColor(Color.White)

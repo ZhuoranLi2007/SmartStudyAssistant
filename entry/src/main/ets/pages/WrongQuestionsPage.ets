@@ -22,6 +22,7 @@ export struct WrongQuestionsPage {
   private copyItem(item: WrongQuestion, mastered: boolean): WrongQuestion {
     return {
       id: item.id,
+      questionNo: item.questionNo,
       subject: item.subject,
       knowledgePoint: item.knowledgePoint,
       question: item.question,
@@ -125,24 +126,38 @@ export struct WrongQuestionsPage {
         } else if (this.isLoading && this.questions.length === 0) {
           Text('正在加载错题...').fontColor('#667085').margin({ top: 40 })
         } else if (this.questions.length === 0) {
-          EmptyStateView({ title: '暂无错题', description: '在试卷训练中答错后，可一键加入错题本' })
+          EmptyStateView({ title: '暂无错题', description: '在试卷训练中答错后，会自动加入错题本' })
             .margin({ left: 16, right: 16 })
         } else {
           List({ space: 12 }) {
             ForEach(this.questions, (item: WrongQuestion) => {
               ListItem() {
-                Column({ space: 9 }) {
+                Column({ space: 12 }) {
                   Row() {
-                    Text(item.subject).fontSize(12).fontColor('#2F6BFF').backgroundColor('#EEF4FF')
-                      .padding({ left: 8, right: 8, top: 4, bottom: 4 }).borderRadius(8)
-                    Text(item.knowledgePoint).fontSize(12).fontColor('#667085').margin({ left: 8 }).layoutWeight(1)
+                    Row({ space: 8 }) {
+                      Text(item.subject).fontSize(12).fontColor('#2F6BFF').backgroundColor('#EEF4FF')
+                        .padding({ left: 8, right: 8, top: 4, bottom: 4 }).borderRadius(8)
+                      Text(item.knowledgePoint).fontSize(12).fontColor('#667085').maxLines(1)
+                    }.layoutWeight(1)
                     if (item.mastered) {
-                      Text('已掌握').fontSize(12).fontColor('#12B76A')
+                      Text('已掌握').fontSize(12).fontColor('#12B76A').fontWeight(FontWeight.Medium)
+                        .backgroundColor('#ECFDF3').padding({ left: 8, right: 8, top: 3, bottom: 3 }).borderRadius(8)
+                    } else {
+                      Text(`累计答错 ${item.wrongCount} 次`).fontSize(12).fontColor('#FFFFFF').fontWeight(FontWeight.Bold)
+                        .backgroundColor('#F04438').padding({ left: 10, right: 10, top: 4, bottom: 4 }).borderRadius(10)
                     }
                   }.width('100%')
-                  Text(item.question).fontSize(15).fontWeight(FontWeight.Medium).lineHeight(23).width('100%')
-                  Text(`我的答案：${item.userAnswer}`).fontSize(13).fontColor('#D92D20').width('100%')
-                  Text(`正确答案：${item.correctAnswer}`).fontSize(13).fontColor('#12B76A').width('100%')
+                  Text(item.question).fontSize(16).fontWeight(FontWeight.Medium).lineHeight(25).fontColor('#172033').width('100%')
+                  Row({ space: 16 }) {
+                    Column({ space: 3 }) {
+                      Text('我的答案').fontSize(11).fontColor('#D92D20')
+                      Text(item.userAnswer).fontSize(14).fontColor('#D92D20').fontWeight(FontWeight.Medium)
+                    }.layoutWeight(1)
+                    Column({ space: 3 }) {
+                      Text('正确答案').fontSize(11).fontColor('#12B76A')
+                      Text(item.correctAnswer).fontSize(14).fontColor('#12B76A').fontWeight(FontWeight.Medium)
+                    }.layoutWeight(1)
+                  }.width('100%')
                   Row({ space: 8 }) {
                     Text(this.expandedId === item.id ? '收起解析' : '查看解析')
                       .fontSize(13).fontColor('#2F6BFF').layoutWeight(1)

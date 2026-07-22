@@ -89,6 +89,7 @@ export interface FavoriteItem {
 
 export interface WrongQuestion {
   id: number;
+  questionNo: number;
   subject: string;
   knowledgePoint: string;
   question: string;

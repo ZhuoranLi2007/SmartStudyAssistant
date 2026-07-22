@@ -1,9 +1,12 @@
+import hashlib
+import json
 from decimal import Decimal
+from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.models import Course, Paper, PaperQuestion
+from server.models import Course, Paper, PaperQuestion, PracticeAnswer, PracticeAttempt, WrongQuestion
 
 
 GRADES = ["一年级", "二年级", "三年级", "四年级", "五年级", "六年级"]
@@ -43,30 +46,78 @@ def _knowledge_points(grade: str, subject: str) -> list[str]:
     return ["词汇", "语法", "阅读理解"]
 
 
-def _question_templates(subject: str, knowledge_point: str) -> list[tuple[str, list[str], int, str]]:
-    if subject == "语文":
-        return [
-            (f"学习{knowledge_point}时，哪种方法更有效？", ["只记答案", "结合例句理解并练习", "跳过内容", "只看标题"], 1, "结合语境理解并及时练习，有助于形成稳定掌握。"),
-            ("下列哪一项更适合作为阅读文章的中心概括？", ["文中的任意一句", "文章主要内容和表达重点", "最后一个词", "生字数量"], 1, "中心概括应覆盖文章主要内容和表达重点。"),
-            ("遇到不理解的词语时，首先可以怎么做？", ["结合上下文推测", "直接跳过全文", "随意替换", "只看字数"], 0, "联系上下文是理解词义的重要方法。"),
-            ("完成习作后，哪种检查方式更合理？", ["只检查字数", "检查内容、结构和错别字", "立即提交", "删除开头"], 1, "从内容、结构和语言三方面检查能提高习作质量。"),
-            ("积累古诗词时，哪种方式更利于理解？", ["只机械抄写", "结合注释、画面和情感理解", "不读原文", "只背题目"], 1, "结合语境、画面和情感能够提升理解与记忆。"),
-        ]
-    if subject == "数学":
-        return [
-            (f"关于{knowledge_point}，下列计算结果正确的是？", ["25", "40", "50", "75"], 2, "先梳理题目条件，再按运算顺序计算。"),
-            (f"解决一道{knowledge_point}问题，第一步通常应当做什么？", ["直接猜答案", "找出已知量和未知量", "跳过题目", "只看选项"], 1, "应用题先识别已知量、未知量及它们之间的关系。"),
-            ("把 0.25 化成百分数是多少？", ["2.5%", "25%", "250%", "0.25%"], 1, "小数化百分数需要乘以100并添加百分号。"),
-            ("一个数的 50% 是 30，这个数是多少？", ["15", "30", "60", "90"], 2, "用30除以50%，得到60。"),
-            ("完成计算后，最合适的检查方法是什么？", ["估算并代回验证", "立即提交", "删除过程", "更换题目"], 0, "估算与代回可以发现数量级或运算错误。"),
-        ]
-    return [
-        (f"学习{knowledge_point}时，哪种方法更有效？", ["只背中文", "结合语境反复使用", "跳过生词", "只看答案"], 1, "语言知识需要在语境中理解并通过输出巩固。"),
-        ("Choose the correct word: I ___ a student.", ["am", "is", "are", "be"], 0, "主语 I 与 am 搭配。"),
-        ("Which word means '阅读'?", ["listen", "read", "write", "speak"], 1, "read 表示阅读。"),
-        ("阅读短文时，遇到生词首先可以怎么做？", ["立即放弃", "结合上下文推测", "删除句子", "只看标题"], 1, "上下文通常能提供词义线索。"),
-        ("完成阅读题后，哪种复盘方式更合理？", ["只记分数", "分析定位句和错误原因", "不看解析", "重新抄题"], 1, "复盘定位依据和错误原因，才能减少重复错误。"),
-    ]
+def _paper_questions_path() -> Path:
+    """试卷题目 JSON 文件路径。"""
+    return Path(__file__).resolve().parent.parent / "data" / "paper_questions.json"
+
+
+def _paper_questions_hash_path() -> Path:
+    """记录试卷题目 JSON 文件 hash 的标记文件路径。"""
+    return Path(__file__).resolve().parent.parent / "data" / ".paper_questions_hash"
+
+
+def _paper_questions_hash() -> str:
+    """计算试卷题目 JSON 文件内容的 sha256 hash。"""
+    path = _paper_questions_path()
+    if not path.exists():
+        return ""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except Exception:
+        return ""
+
+
+def _load_paper_questions() -> dict[str, list[tuple[str, list[str], int, str, int]]]:
+    """从 JSON 加载每套试卷的 5 道题目，返回 {试卷名: [(stem, options, correct_index, explanation, question_no), ...]}。"""
+    path = _paper_questions_path()
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as fp:
+            raw = json.load(fp)
+    except Exception:
+        return {}
+
+    letter_to_index = {"A": 0, "B": 1, "C": 2, "D": 3}
+    result: dict[str, list[tuple[str, list[str], int, str, int]]] = {}
+    question_no = 1
+    for paper_name, items in raw.items():
+        templates: list[tuple[str, list[str], int, str, int]] = []
+        for item in items:
+            stem = (item.get("stem") or "").strip()
+            options = item.get("options") or []
+            options = [str(opt).strip() for opt in options]
+            correct_letter = str(item.get("correct") or "").strip().upper()
+            correct_index = letter_to_index.get(correct_letter, 0)
+            explanation = (item.get("explanation") or "").strip()
+            if not stem or len(options) != 4:
+                continue
+            templates.append((stem, options, correct_index, explanation, question_no))
+            question_no += 1
+        if templates:
+            result[paper_name] = templates
+    return result
+
+
+def _questions_match(
+    questions: list[PaperQuestion],
+    templates: list[tuple[str, list[str], int, str, int]],
+) -> bool:
+    """检查数据库中的题目与 JSON 模板是否完全一致。"""
+    if len(questions) != len(templates):
+        return False
+    for question, (stem, options, correct_index, explanation, question_no) in zip(questions, templates):
+        if question.question_no != question_no:
+            return False
+        if question.stem.strip() != stem:
+            return False
+        if question.options_json != options:
+            return False
+        if question.correct_index != correct_index:
+            return False
+        if (question.explanation or "").strip() != explanation:
+            return False
+    return True
 
 
 async def seed_catalog(db: AsyncSession) -> None:
@@ -150,18 +201,61 @@ async def seed_catalog(db: AsyncSession) -> None:
         if not course.total_lessons:
             course.total_lessons = 12 + index * 4
 
+    questions_by_name = _load_paper_questions()
     papers = list((await db.scalars(select(Paper).order_by(Paper.id))).all())
+    target_paper_ids = [paper.id for paper in papers if paper.name in target_paper_names]
+
+    # 检测每套目标试卷的题目是否与 JSON 完全一致；任何不一致或 JSON 发生变化都清空后重新生成
+    current_hash = _paper_questions_hash()
+    hash_marker = _paper_questions_hash_path()
+    previous_hash = ""
+    if hash_marker.exists():
+        try:
+            previous_hash = hash_marker.read_text(encoding="utf-8").strip()
+        except Exception:
+            previous_hash = ""
+    need_reset = current_hash != previous_hash
+
+    if not need_reset:
+        for paper in papers:
+            if paper.id not in target_paper_ids:
+                continue
+            templates = questions_by_name.get(paper.name, [])
+            if not templates:
+                continue
+            existing = list((await db.scalars(
+                select(PaperQuestion).where(PaperQuestion.paper_id == paper.id).order_by(PaperQuestion.sequence)
+            )).all())
+            if not _questions_match(existing, templates):
+                need_reset = True
+                break
+
+    if need_reset and target_paper_ids:
+        target_question_ids = select(PaperQuestion.id).where(PaperQuestion.paper_id.in_(target_paper_ids))
+        await db.execute(delete(PracticeAnswer).where(PracticeAnswer.question_id.in_(target_question_ids)))
+        await db.execute(delete(WrongQuestion).where(WrongQuestion.question_id.in_(target_question_ids)))
+        await db.execute(delete(PaperQuestion).where(PaperQuestion.paper_id.in_(target_paper_ids)))
+        await db.commit()
+        try:
+            hash_marker.write_text(current_hash, encoding="utf-8")
+        except Exception:
+            pass
+
     for paper in papers:
-        count = await db.scalar(select(func.count(PaperQuestion.id)).where(PaperQuestion.paper_id == paper.id)) or 0
-        if count:
+        if paper.id not in target_paper_ids:
+            continue
+        templates = questions_by_name.get(paper.name, [])
+        existing_count = await db.scalar(
+            select(func.count(PaperQuestion.id)).where(PaperQuestion.paper_id == paper.id)
+        ) or 0
+        if existing_count > 0:
             continue
         knowledge_point = (paper.knowledge_points or ["综合"])[0]
-        for sequence, (stem, options, correct_index, explanation) in enumerate(
-            _question_templates(paper.subject, knowledge_point), start=1
-        ):
+        for sequence, (stem, options, correct_index, explanation, question_no) in enumerate(templates, start=1):
             db.add(PaperQuestion(
                 paper_id=paper.id,
                 sequence=sequence,
+                question_no=question_no,
                 stem=stem,
                 options_json=options,
                 correct_index=correct_index,

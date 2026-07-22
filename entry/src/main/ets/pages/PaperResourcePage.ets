@@ -63,7 +63,7 @@ export struct PaperResourcePage {
     NavDestination() {
       Column() {
         PageHeader({ title: '试卷训练' })
-        Search({ placeholder: '搜索试卷名称、科目或知识点', value: this.searchText })
+        Search({ placeholder: '搜索试卷名称', value: this.searchText })
           .height(44)
           .margin({ left: 16, right: 16, bottom: 12 })
           .backgroundColor(Color.White)

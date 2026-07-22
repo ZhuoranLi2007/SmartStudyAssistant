@@ -105,6 +105,7 @@ async def submit_attempt(
                     student_profile_id=student_profile_id,
                     paper_id=paper_id,
                     question_id=question.id,
+                    question_no=question.question_no,
                     subject=paper.subject,
                     knowledge_point=question.knowledge_point,
                     question_text=question.stem,
@@ -116,6 +117,7 @@ async def submit_attempt(
                 wrong.user_answer = user_answer
                 wrong.correct_answer = correct_answer
                 wrong.explanation = question.explanation
+                wrong.question_no = question.question_no
                 wrong.mastered = False
                 wrong.wrong_count += 1
     attempt.knowledge_stats_json = knowledge_stats
@@ -193,10 +195,13 @@ async def add_wrong_questions_batch(
                 paper_id = paper_row.paper_id if paper_row is not None else 0
             if paper_id <= 0:
                 continue
+            paper_question = await db.get(PaperQuestion, bind_question_id)
+            question_no = paper_question.question_no if paper_question is not None else 0
             db.add(WrongQuestion(
                 student_profile_id=student_profile_id,
                 paper_id=paper_id,
                 question_id=bind_question_id,
+                question_no=question_no,
                 subject=subject,
                 knowledge_point=knowledge_point,
                 question_text=question_text,
@@ -226,6 +231,7 @@ async def wrong_question_list(db: AsyncSession, user: User, student_profile_id: 
     rows = list((await db.scalars(statement.order_by(WrongQuestion.updated_at.desc()))).all())
     return [{
         "id": row.id,
+        "questionNo": row.question_no,
         "subject": row.subject,
         "knowledgePoint": row.knowledge_point,
         "question": row.question_text,
@@ -249,6 +255,7 @@ async def wrong_question_training(
         raise HTTPException(status_code=404, detail="原题数据不存在")
     return {
         "id": wrong.id,
+        "questionNo": wrong.question_no,
         "questionId": question.id,
         "subject": wrong.subject,
         "knowledgePoint": wrong.knowledge_point,
