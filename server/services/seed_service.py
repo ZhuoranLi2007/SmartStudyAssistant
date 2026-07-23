@@ -178,9 +178,10 @@ async def seed_catalog(db: AsyncSession) -> None:
             })
     target_paper_names = {p["name"] for p in target_papers}
 
-    # 停用旧试卷
+    # 停用旧试卷（只处理公共试卷，保留用户 AI 组卷）
     for paper in list((await db.scalars(select(Paper))).all()):
-        paper.is_active = paper.name in target_paper_names
+        if not paper.is_ai_generated:
+            paper.is_active = paper.name in target_paper_names
 
     existing_paper_names = set((await db.scalars(select(Paper.name))).all())
     for data in target_papers:
