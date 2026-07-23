@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -34,17 +35,24 @@ _vosk_model = None
 
 def _find_ffmpeg() -> str:
     """查找 ffmpeg 可执行文件路径"""
-    # 优先使用 ffmpeg-downloader 安装的路径
-    candidate = (
-        r"C:\Users\zly20\AppData\Local\ffmpegio\ffmpeg-downloader\ffmpeg\bin\ffmpeg.exe"
-    )
-    if Path(candidate).exists():
-        return candidate
-    # 从系统 PATH 查找
+    # 1. 优先使用环境变量 FFMPEG_PATH
+    env_path = os.environ.get("FFMPEG_PATH")
+    if env_path and Path(env_path).exists():
+        return env_path
+    # 2. 尝试 ffmpeg-downloader 自动安装的路径（pip install 后自动下载）
+    try:
+        import ffmpeg_downloader
+        ffmpeg_path = ffmpeg_downloader.ffmpeg_path
+        if ffmpeg_path and Path(ffmpeg_path).exists():
+            return ffmpeg_path
+    except ImportError:
+        pass
+    # 3. 从系统 PATH 查找
     found = shutil.which("ffmpeg")
     if found:
         return found
-    return "ffmpeg"  # 最后 fallback，让系统自己找
+    # 4. 最后 fallback，让系统自己找
+    return "ffmpeg"
 
 
 FFMPEG_PATH = _find_ffmpeg()
