@@ -180,6 +180,7 @@ async def _save_generated_paper(
     generated_count = await db.scalar(select(func.count(Paper.id)).where(
         Paper.is_ai_generated.is_(True),
         Paper.created_by == user.id,
+        Paper.is_active.is_(True),
     ))
     serial_number = (generated_count or 0) + 1
 

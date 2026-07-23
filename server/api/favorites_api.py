@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.database import get_db
 from server.models import Course, Favorite, Paper, User
 from server.services.access_service import ensure_student_access
+from server.services.ai_paper_service import _display_name
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
@@ -35,7 +36,7 @@ def favorite_data(row: Favorite, course: Course | None = None, paper: Paper | No
         "favoriteId": row.id,
         "targetId": row.target_id,
         "type": (row.type or "").upper(),
-        "title": row.title,
+        "title": _display_name(row.title) if row.type == "paper" else row.title,
         "subtitle": row.subtitle or "",
         "tag": row.tag or "",
         "grade": grade,
@@ -97,7 +98,7 @@ async def add_favorite(
         target = await db.get(Paper, target_id)
         if target is None:
             raise HTTPException(status_code=404, detail="试卷不存在")
-        title = target.name
+        title = _display_name(target.name) if target.is_ai_generated else target.name
         subtitle = f"{target.question_count}题 · {target.difficulty}"
         tag = target.subject
         course, paper = None, target

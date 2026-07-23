@@ -8,6 +8,7 @@ from server.database import get_db
 from server.models import Course, Paper, StudentSubjectProfile, StudyTask, User, WrongQuestion
 from server.schemas import StudyTaskCreate, TaskStatusUpdate
 from server.services.access_service import ensure_student_access
+from server.services.ai_paper_service import _display_name
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
@@ -19,7 +20,7 @@ def task_data(row: StudyTask) -> dict:
         "id": row.id,
         "studentProfileId": row.student_profile_id,
         "targetId": row.target_id,
-        "name": row.name,
+        "name": _display_name(row.name) if row.task_type == "试卷" else row.name,
         "taskType": row.task_type,
         "subject": row.subject,
         "difficulty": row.difficulty,
@@ -90,7 +91,7 @@ async def recommended_papers(
         reason = f"针对薄弱知识点{'、'.join(matched)}进行专项巩固" if matched else f"适合{profile.grade}{paper.subject}阶段训练"
         result.append({
             "id": paper.id,
-            "name": paper.name,
+            "name": _display_name(paper.name) if paper.is_ai_generated else paper.name,
             "grade": paper.grade,
             "subject": paper.subject,
             "difficulty": paper.difficulty,
@@ -164,7 +165,7 @@ async def add_task(payload: StudyTaskCreate, db: AsyncSession = Depends(get_db),
         knowledge_point = target.knowledge_point
     else:
         knowledge_points = target.knowledge_points or []
-        name = target.name
+        name = _display_name(target.name) if isinstance(target, Paper) and target.is_ai_generated else target.name
         subject = target.subject
         difficulty = target.difficulty
         duration_minutes = 40

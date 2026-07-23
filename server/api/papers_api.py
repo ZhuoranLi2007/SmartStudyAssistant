@@ -72,7 +72,7 @@ async def generate(
         payload.grade, payload.subject, payload.based_on_wrong_questions,
     )
     await db.commit()
-    return ok({"id": paper.id, "name": paper.name, "questionCount": paper.question_count}, "试卷已生成")
+    return ok({"id": paper.id, "name": _display_name(paper.name), "questionCount": paper.question_count}, "试卷已生成")
 
 
 @router.get("/my/list")
