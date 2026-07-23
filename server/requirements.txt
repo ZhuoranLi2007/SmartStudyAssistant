@@ -17,4 +17,6 @@ pytest-asyncio>=0.23,<1
 SpeechRecognition>=3.10,<4
 pydub>=0.25,<1
 vosk>=0.3.45,<1
+# 自动下载 ffmpeg（Windows 专用，pip install 时自动安装）
+ffmpeg-downloader>=0.3,<1
 requests>=2.31,<3
