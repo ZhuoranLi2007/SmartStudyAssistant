@@ -276,13 +276,12 @@ export struct AiAssistantPage {
 
   private async toggleVoice(): Promise<void> {
     if (this.isRecording) {
+      // 停止录音
+      speechAiService.stopBackendRecording();
+      speechAiService.cancelBackendRecording();
       speechAiService.stopListening();
       this.isRecording = false;
       this.clearAsrTimeout();
-      return;
-    }
-    if (!speechAiService.isAsrSupported()) {
-      promptAction.showToast({ message: '当前设备不支持语音识别，可继续使用文字输入' });
       return;
     }
     try {
@@ -293,25 +292,68 @@ export struct AiAssistantPage {
       }
       this.inputText = '';
       this.asrHasResult = false;
-      this.isRecording = await speechAiService.startListening((text: string, isFinal: boolean, isLast: boolean) => {
-        this.asrHasResult = true;
-        this.inputText = text;
-        if (isFinal || isLast) {
+
+      // 先尝试后端语音识别（AudioCapturer 录音 + 后端 API 识别）
+      // 后端识别支持长语音、更准确，兼容模拟器
+      const backendStarted: boolean = await speechAiService.startBackendRecording(this.context(),
+        (text: string): void => {
           this.isRecording = false;
-          this.clearAsrTimeout();
-          const question: string = text.trim();
-          if (question) {
-            void this.sendQuestion(question);
+          this.asrHasResult = true;
+          this.inputText = text;
+          if (text.trim()) {
+            promptAction.showToast({ message: '语音识别完成，可检查后发送' });
           } else {
             promptAction.showToast({ message: '未识别到有效内容' });
           }
+        },
+        (message: string): void => {
+          this.isRecording = false;
+          this.clearAsrTimeout();
+          promptAction.showToast({ message: message });
         }
-      }, (_code: number, message: string) => {
-        this.isRecording = false;
-        this.clearAsrTimeout();
-        promptAction.showToast({ message: `语音识别失败：${message}` });
-      });
-      if (this.isRecording) {
+      );
+
+      if (backendStarted) {
+        this.isRecording = true;
+        promptAction.showToast({ message: '正在录音，请说话…' });
+        this.asrTimeoutId = setTimeout(() => {
+          if (this.isRecording) {
+            speechAiService.stopBackendRecording();
+            speechAiService.cancelBackendRecording();
+            this.isRecording = false;
+            if (!this.asrHasResult) {
+              promptAction.showToast({ message: '未检测到语音，请检查麦克风或网络' });
+            }
+          }
+        }, 60000);
+        return;
+      }
+
+      // 后端录音启动失败，尝试降级到原生 ASR
+      console.info('后端录音不可用，尝试原生 ASR');
+      const nativeStarted: boolean = await speechAiService.startListening(
+        (text: string, isFinal: boolean, isLast: boolean) => {
+          this.asrHasResult = true;
+          this.inputText = text;
+          if (isFinal || isLast) {
+            this.isRecording = false;
+            this.clearAsrTimeout();
+            if (text.trim()) {
+              promptAction.showToast({ message: '语音识别完成，可检查后发送' });
+            } else {
+              promptAction.showToast({ message: '未识别到有效内容' });
+            }
+          }
+        },
+        (_code: number, message: string) => {
+          this.isRecording = false;
+          this.clearAsrTimeout();
+          promptAction.showToast({ message: `语音识别失败：${message}` });
+        }
+      );
+
+      if (nativeStarted) {
+        this.isRecording = true;
         promptAction.showToast({ message: '正在听，请说话…' });
         this.asrTimeoutId = setTimeout(() => {
           if (this.isRecording) {
@@ -321,8 +363,12 @@ export struct AiAssistantPage {
               promptAction.showToast({ message: '未检测到语音，请检查麦克风或网络' });
             }
           }
-        }, 30000);
+        }, 60000);
+        return;
       }
+
+      // 两种方式都不可用
+      promptAction.showToast({ message: '当前设备不支持语音识别，可继续使用文字输入' });
     } catch (error) {
       this.isRecording = false;
       this.clearAsrTimeout();
@@ -369,6 +415,7 @@ export struct AiAssistantPage {
 
   aboutToDisappear(): void {
     this.clearAsrTimeout();
+    speechAiService.cancelBackendRecording();
     speechAiService.cancelListening();
     speechAiService.stopSpeak();
   }
