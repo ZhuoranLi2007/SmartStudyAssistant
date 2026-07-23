@@ -78,7 +78,7 @@ async def home_data(
         ).order_by(StudentSubjectProfile.id))
 
     course_query = select(Course).where(Course.is_active.is_(True))
-    paper_query = select(Paper).where(Paper.is_active.is_(True))
+    paper_query = select(Paper).where(Paper.is_active.is_(True), Paper.is_ai_generated.is_(False))
     if profile is not None:
         course_query = course_query.where(Course.grade == profile.grade)
         paper_query = paper_query.where(Paper.grade == profile.grade)
@@ -101,7 +101,8 @@ async def home_data(
     papers = list((await db.scalars(paper_query.order_by(Paper.id).limit(4))).all())
     if not papers:
         papers = list((await db.scalars(
-            select(Paper).where(Paper.is_active.is_(True)).order_by(Paper.id).limit(4)
+            select(Paper).where(Paper.is_active.is_(True), Paper.is_ai_generated.is_(False))
+                .order_by(Paper.id).limit(4)
         )).all())
 
     total_tasks = 0

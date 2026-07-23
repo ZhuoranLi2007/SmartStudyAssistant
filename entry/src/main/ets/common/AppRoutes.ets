@@ -22,6 +22,8 @@ export class AppRoutes {
   static readonly ONLINE_PRACTICE: string = 'OnlinePracticePage';
   static readonly WRONG_QUESTION_TRAINING: string = 'WrongQuestionTrainingPage';
   static readonly SEARCH_RESULT: string = 'SearchResultPage';
+  static readonly GENERATE_PAPER: string = 'GeneratePaperPage';
+  static readonly MY_PAPERS: string = 'MyPapersPage';
 }
 
 export class IdRouteParam {

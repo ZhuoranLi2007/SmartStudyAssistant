@@ -81,6 +81,10 @@ export struct ProfilePage {
               .onClick(() => this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, null))
             QuickFunctionGrid()
             Column() {
+              Text('我的内容').fontSize(17).fontWeight(FontWeight.Bold).width('100%').margin({ bottom: 6 })
+              SettingListItem({ title: '我的试卷', subtitle: 'AI 生成的专属试卷', routeName: AppRoutes.MY_PAPERS })
+            }.width('100%').padding(16).backgroundColor(Color.White).borderRadius(18)
+            Column() {
               Text('其他服务').fontSize(17).fontWeight(FontWeight.Bold).width('100%').margin({ bottom: 6 })
               SettingListItem({ title: '客服中心', subtitle: '常见问题与在线咨询', routeName: AppRoutes.CUSTOMER_SERVICE })
               Divider().color('#EAECF0')

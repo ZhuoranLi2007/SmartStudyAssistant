@@ -96,6 +96,8 @@ class Paper(TimestampMixin, Base):
     source_url: Mapped[str] = mapped_column(String(255), default="")
     ocr_text: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_ai_generated: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
 
 
 class StudyTask(TimestampMixin, Base):

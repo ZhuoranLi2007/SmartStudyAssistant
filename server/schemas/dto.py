@@ -47,6 +47,16 @@ class PaperAnalyzeRequest(BaseModel):
     grade: str | None = None
 
 
+class GeneratePaperRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    student_profile_id: int = Field(validation_alias=AliasChoices("studentProfileId", "student_profile_id"))
+    requirement: str = Field(min_length=1, max_length=500)
+    grade: str = Field(default="六年级")
+    subject: str = Field(default="数学")
+    based_on_wrong_questions: bool = Field(default=False, validation_alias=AliasChoices("basedOnWrongQuestions", "based_on_wrong_questions"))
+
+
 class StudyTaskCreate(BaseModel):
     student_profile_id: int
     task_type: Literal["课程", "试卷", "错题"]

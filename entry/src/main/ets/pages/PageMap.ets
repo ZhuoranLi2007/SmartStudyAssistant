@@ -10,6 +10,8 @@ import { ProfilePage } from './ProfilePage';
 import { RegisterPage } from './RegisterPage';
 import { SearchResultPage } from './SearchResultPage';
 import { StudentProfilePage } from './StudentProfilePage';
+import { GeneratePaperPage } from './GeneratePaperPage';
+import { MyPapersPage } from './MyPapersPage';
 import { StudyPlanPage } from './StudyPlanPage';
 import { CustomerChatPage } from './CustomerChatPage';
 import { CustomerServicePage } from './CustomerServicePage';
@@ -109,5 +111,9 @@ export function PageMap(name: string, param: Object) {
     })
   } else if (name === AppRoutes.SEARCH_RESULT) {
     SearchResultPage({ keyword: keywordFromSearchParam(param) })
+  } else if (name === AppRoutes.GENERATE_PAPER) {
+    GeneratePaperPage()
+  } else if (name === AppRoutes.MY_PAPERS) {
+    MyPapersPage()
   }
 }

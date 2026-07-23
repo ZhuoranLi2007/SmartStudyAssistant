@@ -63,6 +63,9 @@ async def _ensure_schema_patches() -> None:
         "ALTER TABLE paper_questions ADD COLUMN question_no INT NULL",
         "ALTER TABLE wrong_questions ADD COLUMN question_no INT NOT NULL DEFAULT 0",
         "ALTER TABLE paper_questions ADD UNIQUE KEY uq_paper_question_no (question_no)",
+        "ALTER TABLE papers ADD COLUMN is_ai_generated TINYINT(1) NOT NULL DEFAULT 0",
+        "ALTER TABLE papers ADD COLUMN created_by INT NULL",
+        "ALTER TABLE papers ADD KEY ix_papers_created_by (created_by)",
     ]
     for sql in patches:
         try:

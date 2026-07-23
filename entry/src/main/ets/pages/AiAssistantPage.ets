@@ -412,6 +412,23 @@ export struct AiAssistantPage {
         .padding({ left: 14, right: 14 })
         .width('100%')
 
+        Row({ space: 7 }) {
+          Text('✎').fontSize(15).fontColor('#4777F5')
+          Text('AI 组卷').fontSize(12).fontColor('#344054').fontWeight(FontWeight.Medium)
+        }
+        .height(38)
+        .padding({ left: 12, right: 12 })
+        .backgroundColor(Color.White)
+        .borderRadius(18)
+        .border({ width: 1, color: '#E3E9F6' })
+        .margin({ left: 14, right: 14, bottom: 8 })
+        .opacity(this.isLoading || this.isRestoring ? 0.55 : 1)
+        .onClick(() => {
+          if (!this.isLoading && !this.isRestoring) {
+            this.appPathStack.pushPathByName(AppRoutes.GENERATE_PAPER, null);
+          }
+        })
+
         List({ space: 14, scroller: this.messageScroller }) {
           ForEach(this.messages, (message: ChatMessage) => {
             ListItem() {

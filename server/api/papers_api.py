@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
 from server.models import Paper, PaperQuestion, User
-from server.schemas import PaperAnalyzeRequest, PracticeAttemptCreate
+from server.schemas import GeneratePaperRequest, PaperAnalyzeRequest, PracticeAttemptCreate
+from server.services.ai_paper_service import _display_name, delete_my_paper, generate_paper, list_my_papers
 from server.services.learning_service import submit_attempt
 from server.utils.responses import ok
 from server.utils.security import get_current_user
@@ -13,7 +14,8 @@ router = APIRouter(prefix="/papers", tags=["papers"])
 
 
 def paper_data(row: Paper) -> dict:
-    return {"id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
+    name = _display_name(row.name) if row.is_ai_generated else row.name
+    return {"id": row.id, "name": name, "grade": row.grade, "subject": row.subject,
             "difficulty": row.difficulty, "knowledgePoints": row.knowledge_points,
             "questionCount": row.question_count, "suitableCourseLevel": row.suitable_course_level, "ocrText": row.ocr_text}
 
@@ -24,7 +26,7 @@ async def list_papers(
     keyword: str | None = Query(None),
     db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user),
 ):
-    statement = select(Paper).where(Paper.is_active.is_(True))
+    statement = select(Paper).where(Paper.is_active.is_(True), Paper.is_ai_generated.is_(False))
     if grade: statement = statement.where(Paper.grade == grade)
     if subject: statement = statement.where(Paper.subject == subject)
     if difficulty: statement = statement.where(Paper.difficulty == difficulty)
@@ -60,11 +62,34 @@ async def create_attempt(
     return ok(result, "答题结果已保存")
 
 
-@router.get("/{paper_id}")
-async def get_paper(paper_id: int, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
-    row = await db.get(Paper, paper_id)
-    if row is None: raise HTTPException(status_code=404, detail="试卷不存在")
-    return ok(paper_data(row))
+@router.post("/generate")
+async def generate(
+    payload: GeneratePaperRequest,
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
+):
+    paper = await generate_paper(
+        db, user, payload.student_profile_id, payload.requirement,
+        payload.grade, payload.subject, payload.based_on_wrong_questions,
+    )
+    await db.commit()
+    return ok({"id": paper.id, "name": paper.name, "questionCount": paper.question_count}, "试卷已生成")
+
+
+@router.get("/my/list")
+async def my_papers(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = await list_my_papers(db, user)
+    return ok(rows)
+
+
+@router.delete("/my/{paper_id}")
+async def delete_my_paper_endpoint(
+    paper_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await delete_my_paper(db, user, paper_id)
+    await db.commit()
+    return ok(None, "试卷已删除")
 
 
 @router.post("/analyze")
@@ -88,3 +113,11 @@ async def analyze(payload: PaperAnalyzeRequest, _user: User = Depends(get_curren
     difficulty = "较难" if len(text) > 1000 else "中等" if len(text) > 200 else "基础"
     return ok({"subject": subject, "grade": payload.grade or "待确认", "knowledgePoints": points,
                "difficulty": difficulty, "needsConfirmation": True})
+
+
+@router.get("/{paper_id}")
+async def get_paper(paper_id: int, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
+    row = await db.get(Paper, paper_id)
+    if row is None: raise HTTPException(status_code=404, detail="试卷不存在")
+    return ok(paper_data(row))
+
