@@ -37,5 +37,5 @@
 
 - SDK 中存在 `CoreSpeechKit/CoreVisionKit` 类型并不代表模拟器具备能力；必须使用 `canIUse`，并在目标真机验证权限、识别、播报和 OCR。
 - OCR 对复杂数学公式的准确率有限，第一版应允许用户确认和修改，不能自动将未经确认的内容入库。
-- 云端账号与任务同步不等于 HarmonyOS 原生分布式流转，答辩材料中应明确区分。
+- 普通云端账号同步仍不等于 HarmonyOS 原生分布式流转；当前实验能力必须明确指向 `distributedDataObject`、`DISTRIBUTED_DATASYNC` 与 `UIAbility.onContinue`，并说明真机条件限制。
 - 命令行 HAP 构建成功不等于真机一定可安装；签名、设备 API、网络和权限仍需单独验收。

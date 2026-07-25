@@ -1,6 +1,6 @@
 import { promptAction } from '@kit.ArkUI';
 import { AppConfig } from '../common/AppConfig';
-import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
+import { AppRoutes, DistributedStudyRouteParam, IdRouteParam, OnlinePracticeRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { MainTabBar } from '../components/MainTabBar';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
@@ -8,8 +8,13 @@ import { StudyPlanSummaryCard } from '../components/studyplan/StudyPlanSummaryCa
 import { StudyTaskCard } from '../components/studyplan/StudyTaskCard';
 import { WeekDateStrip } from '../components/studyplan/WeekDateStrip';
 import { StudentProfile, StudyTask, TaskStatus } from '../model/DomainModels';
+import {
+  DistributedStudyListener,
+  DistributedStudySnapshot
+} from '../model/DistributedStudyModels';
 import { DataLoadResult, DataSource } from '../model/ProfileModels';
 import { StudyPlanFilter, WeekDayItem } from '../model/StudyPlanModels';
+import { DistributedStudyService } from '../service/DistributedStudyService';
 import { MockDataService } from '../service/MockDataService';
 import { StudentService } from '../service/StudentService';
 import { StudyPlanService } from '../service/StudyPlanService';
@@ -19,6 +24,8 @@ export struct StudyPlanPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @StorageLink(AppStorageKeys.USER_ROLE) role: string = 'parent';
+  @StorageLink(AppStorageKeys.DISTRIBUTED_SYNC_ENABLED) distributedSyncEnabled: boolean = false;
+  distributedParam: DistributedStudyRouteParam = new DistributedStudyRouteParam();
   @State tasks: StudyTask[] = [];
   @State weekDays: WeekDayItem[] = [];
   @State studentName: string = '';
@@ -34,11 +41,21 @@ export struct StudyPlanPage {
   @State summaryPaper: number = 0;
   @State summaryProgress: number = 0;
   @State summaryWeekLabel: string = '';
+  private readonly distributedListener: DistributedStudyListener =
+    (snapshot: DistributedStudySnapshot): void => {
+      this.applyDistributedSnapshot(snapshot);
+    };
 
   aboutToAppear(): void {
     this.weekDays = this.createWeekDays();
-    this.selectedDate = this.todayIso();
+    this.restoreDistributedRoute();
+    DistributedStudyService.subscribe(this.distributedListener);
+    this.publishDistributedState(this.distributedParam.taskId, this.distributedParam.taskStatus);
     void this.loadData();
+  }
+
+  aboutToDisappear(): void {
+    DistributedStudyService.unsubscribe(this.distributedListener);
   }
 
   private isoDate(value: Date): string {
@@ -50,6 +67,54 @@ export struct StudyPlanPage {
   private todayIso(): string {
     return this.isoDate(new Date());
   }
+
+  private restoreDistributedRoute(): void {
+    this.selectedDate = this.distributedParam.selectedDate || this.todayIso();
+    if (this.distributedParam.filter === StudyPlanFilter.TODAY) {
+      this.filter = StudyPlanFilter.TODAY;
+    } else if (this.distributedParam.filter === StudyPlanFilter.COMPLETED) {
+      this.filter = StudyPlanFilter.COMPLETED;
+    } else {
+      this.filter = StudyPlanFilter.WEEK;
+    }
+  }
+
+  private applyDistributedSnapshot(snapshot: DistributedStudySnapshot): void {
+    if (snapshot.routeName !== AppRoutes.STUDY_PLAN) return;
+    if (snapshot.selectedDate) this.selectedDate = snapshot.selectedDate;
+    if (snapshot.filter === StudyPlanFilter.TODAY) {
+      this.filter = StudyPlanFilter.TODAY;
+    } else if (snapshot.filter === StudyPlanFilter.COMPLETED) {
+      this.filter = StudyPlanFilter.COMPLETED;
+    } else {
+      this.filter = StudyPlanFilter.WEEK;
+    }
+    void this.loadData();
+  }
+
+  private publishDistributedState(taskId: number = 0, taskStatus: string = ''): void {
+    if (!this.distributedSyncEnabled) return;
+    const snapshot = new DistributedStudySnapshot();
+    snapshot.routeName = AppRoutes.STUDY_PLAN;
+    snapshot.taskId = taskId;
+    snapshot.taskStatus = taskStatus;
+    snapshot.selectedDate = this.selectedDate;
+    snapshot.filter = this.filter;
+    snapshot.updatedAt = Date.now();
+    DistributedStudyService.publish(snapshot);
+  }
+
+  private selectFilter(value: StudyPlanFilter): void {
+    this.filter = value;
+    this.publishDistributedState();
+  }
+
+  private selectDate(value: string): void {
+    this.selectedDate = value;
+    this.filter = StudyPlanFilter.TODAY;
+    this.publishDistributedState();
+  }
+
 
   private createWeekDays(): WeekDayItem[] {
     const today = new Date();
@@ -176,6 +241,9 @@ export struct StudyPlanPage {
     try {
       if (task.status === TaskStatus.NOT_STARTED) {
         await StudyPlanService.updateStatus(task.id, TaskStatus.IN_PROGRESS);
+        this.publishDistributedState(task.id, TaskStatus.IN_PROGRESS);
+      } else {
+        this.publishDistributedState(task.id, task.status);
       }
       if (task.taskType === '试卷') {
         const param: OnlinePracticeRouteParam = new OnlinePracticeRouteParam();
@@ -203,6 +271,7 @@ export struct StudyPlanPage {
     this.operatingTaskId = task.id;
     try {
       await StudyPlanService.updateStatus(task.id, TaskStatus.COMPLETED);
+      this.publishDistributedState(task.id, TaskStatus.COMPLETED);
       promptAction.showToast({ message: '学习任务已完成' });
       await this.loadData();
     } catch (error) {
@@ -239,7 +308,7 @@ export struct StudyPlanPage {
     Button(label).layoutWeight(1).height(36).fontSize(12)
       .backgroundColor(this.filter === value ? '#2F6BFF' : Color.White)
       .fontColor(this.filter === value ? Color.White : '#475467')
-      .onClick(() => this.filter = value)
+      .onClick(() => this.selectFilter(value))
   }
 
   build() {
@@ -278,7 +347,7 @@ export struct StudyPlanPage {
               WeekDateStrip({
                 days: this.weekDays,
                 selectedDate: this.selectedDate,
-                onSelect: (date: string): void => { this.selectedDate = date; this.filter = StudyPlanFilter.TODAY; }
+                onSelect: (date: string): void => this.selectDate(date)
               })
               Row() {
                 Text(this.filter === StudyPlanFilter.WEEK ? '本周任务' : this.filter === StudyPlanFilter.COMPLETED ? '已完成任务' : '当日任务')

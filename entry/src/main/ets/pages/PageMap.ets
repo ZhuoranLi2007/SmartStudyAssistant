@@ -1,4 +1,4 @@
-import { AppRoutes, IdRouteParam, OnlinePracticeRouteParam, PlatformInfoRouteParam, ProfileSetupRouteParam, SearchRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
+import { AppRoutes, DistributedStudyRouteParam, IdRouteParam, OnlinePracticeRouteParam, PlatformInfoRouteParam, ProfileSetupRouteParam, SearchRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
 import { AiAssistantPage } from './AiAssistantPage';
 import { CourseDetailPage } from './CourseDetailPage';
 import { CourseRecommendationPage } from './CourseRecommendationPage';
@@ -60,6 +60,11 @@ function keywordFromSearchParam(param: Object): string {
   return '';
 }
 
+function distributedStudyParam(param: Object): DistributedStudyRouteParam {
+  if (param instanceof DistributedStudyRouteParam) return param;
+  return new DistributedStudyRouteParam();
+}
+
 @Builder
 export function PageMap(name: string, param: Object) {
   if (name === AppRoutes.LOGIN) {
@@ -81,7 +86,7 @@ export function PageMap(name: string, param: Object) {
   } else if (name === AppRoutes.PAPER_DETAIL) {
     PaperDetailPage({ paperId: (param as IdRouteParam).id })
   } else if (name === AppRoutes.STUDY_PLAN) {
-    StudyPlanPage()
+    StudyPlanPage({ distributedParam: distributedStudyParam(param) })
   } else if (name === AppRoutes.PROFILE) {
     ProfilePage()
   } else if (name === AppRoutes.MY_COURSES) {

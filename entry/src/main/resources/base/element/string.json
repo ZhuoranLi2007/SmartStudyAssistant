@@ -12,6 +12,9 @@
     "name" : "microphone_reason",
     "value" : "用于语音咨询、语音识别和学习内容朗读"
   }, {
+    "name" : "distributed_sync_reason",
+    "value" : "用于在可信鸿蒙设备之间同步学习计划状态并接续学习任务"
+  }, {
     "name" : "defaultForm_label",
     "value" : "form_label"
   }, {

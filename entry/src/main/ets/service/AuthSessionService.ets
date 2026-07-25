@@ -1,9 +1,12 @@
 import { common } from '@kit.AbilityKit';
 import { AppStorageKeys } from '../common/AppStorageKeys';
+import { DistributedStudyService } from './DistributedStudyService';
 import { SessionStorageService } from './SessionStorageService';
 
 export class AuthSessionService {
   static async clear(context: common.UIAbilityContext): Promise<void> {
+    await DistributedStudyService.disable();
+    DistributedStudyService.clearPendingSnapshot();
     AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, '');
     AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, 0);
     AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, '');

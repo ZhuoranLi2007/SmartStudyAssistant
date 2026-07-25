@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { speechAiService } from '../ai/SpeechAiService';
 import { AppRoutes } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
@@ -403,6 +404,26 @@ export struct AiAssistantPage {
     }
   }
 
+  private async copyAssistantContent(content: string): Promise<void> {
+    try {
+      const data: pasteboard.PasteData =
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, content);
+      await pasteboard.getSystemPasteboard().setData(data);
+      this.showCurrentToast('已复制');
+    } catch (error) {
+      console.error(`复制 AI 回复失败: ${JSON.stringify(error)}`);
+      this.showCurrentToast('复制失败，请重试');
+    }
+  }
+
+  private showCurrentToast(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message });
+    } catch (error) {
+      console.error(`显示页面提示失败: ${JSON.stringify(error)}`);
+    }
+  }
+
   private intentText(): string {
     if (!this.currentIntent || this.currentIntent === 'GENERAL_CHAT') return '';
     const names: Map<string, string> = new Map<string, string>([
@@ -483,6 +504,7 @@ export struct AiAssistantPage {
                 message: message,
                 speakingMessageId: this.speakingMessageId,
                 onRead: (content: string, messageId: string): void => { void this.readMessage(content, messageId); },
+                onCopy: (content: string): void => { void this.copyAssistantContent(content); },
                 onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
               })
             }

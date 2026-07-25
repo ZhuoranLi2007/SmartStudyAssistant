@@ -13,10 +13,14 @@ async def register_parent(client):
     return response.json()["data"]
 
 
-async def create_student(client, token):
-    response = await client.post("/api/students", headers={"Authorization": f"Bearer {token}"}, json={
+async def create_student(client, parent, weak_points=None):
+    response = await client.put(
+        f"/api/students/{parent['studentProfileId']}",
+        headers={"Authorization": f"Bearer {parent['accessToken']}"},
+        json={
         "name": "AI测试学生", "grade": "六年级", "subject": "数学", "recent_score": 82,
-        "weak_points": ["应用题"], "learning_goal": "提高成绩", "weekly_study_minutes": 210,
+        "weak_points": ["应用题"] if weak_points is None else weak_points,
+        "learning_goal": "提高成绩", "weekly_study_minutes": 210,
     })
     assert response.status_code == 200, response.text
     return response.json()["data"]
@@ -26,7 +30,7 @@ async def create_student(client, token):
 async def test_health_rag_and_structured_ai_response(client):
     parent = await register_parent(client)
     auth = {"Authorization": f"Bearer {parent['accessToken']}"}
-    student = await create_student(client, parent["accessToken"])
+    student = await create_student(client, parent)
 
     health = await client.get("/api/ai/health")
     assert health.status_code == 200
@@ -60,7 +64,7 @@ async def test_health_rag_and_structured_ai_response(client):
 async def test_home_aggregation_and_ai_route_are_registered(client):
     parent = await register_parent(client)
     auth = {"Authorization": f"Bearer {parent['accessToken']}"}
-    student = await create_student(client, parent["accessToken"])
+    student = await create_student(client, parent)
 
     home = await client.get(
         "/api/home",
@@ -127,11 +131,19 @@ async def test_user_without_student_can_ask_general_question(client):
 async def test_sse_order_and_study_plan_card_details(client):
     parent = await register_parent(client)
     auth = {"Authorization": f"Bearer {parent['accessToken']}"}
-    student = await create_student(client, parent["accessToken"])
+    student = await create_student(client, parent)
 
+    before = await client.get(
+        "/api/study-plans",
+        headers=auth,
+        params={"student_profile_id": student["id"]},
+    )
+    assert before.status_code == 200, before.text
+
+    client_message_id = str(uuid.uuid4())
     stream = await client.post("/api/ai/chat/stream", headers=auth, json={
         "studentProfileId": student["id"],
-        "clientMessageId": str(uuid.uuid4()),
+        "clientMessageId": client_message_id,
         "message": "请根据学生档案生成一周学习计划",
     })
     assert stream.status_code == 200, stream.text
@@ -146,13 +158,52 @@ async def test_sse_order_and_study_plan_card_details(client):
     assert len(plan_cards) == 1
     assert len(plan_cards[0]["tasks"]) == 7
     assert plan_cards[0]["tasks"][0]["durationMinutes"] > 0
+    assert plan_cards[0]["id"] == 0
+    assert all(task["id"] < 0 for task in plan_cards[0]["tasks"])
+    assert all(task["courseId"] is None and task["paperId"] is None for task in plan_cards[0]["tasks"])
+
+    replay = await client.post("/api/ai/chat", headers=auth, json={
+        "sessionId": done["sessionId"],
+        "studentProfileId": student["id"],
+        "clientMessageId": client_message_id,
+        "message": "请根据学生档案生成一周学习计划",
+    })
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["data"]["requestId"] == done["requestId"]
+    assert replay.json()["data"]["cards"] == done["cards"]
+
+    after = await client.get(
+        "/api/study-plans",
+        headers=auth,
+        params={"student_profile_id": student["id"]},
+    )
+    assert after.status_code == 200, after.text
+    assert after.json()["data"] == before.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_study_plan_preview_without_weak_points(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+    student = await create_student(client, parent, weak_points=[])
+
+    response = await client.post("/api/ai/chat", headers=auth, json={
+        "studentProfileId": student["id"],
+        "clientMessageId": str(uuid.uuid4()),
+        "message": "请生成一周学习计划",
+    })
+    assert response.status_code == 200, response.text
+    plan_cards = [card for card in response.json()["data"]["cards"] if card["type"] == "STUDY_PLAN"]
+    assert len(plan_cards) == 1
+    assert len(plan_cards[0]["tasks"]) == 7
+    assert plan_cards[0]["tasks"][0]["knowledgePoint"] == "数学基础知识"
 
 
 @pytest.mark.asyncio
 async def test_order_confirmation_and_idempotent_retry(client):
     parent = await register_parent(client)
     auth = {"Authorization": f"Bearer {parent['accessToken']}"}
-    student = await create_student(client, parent["accessToken"])
+    student = await create_student(client, parent)
 
     not_confirmed = await client.post("/api/ai/chat", headers=auth, json={
         "studentProfileId": student["id"], "message": "我想看看课程1",
@@ -186,7 +237,7 @@ async def test_order_confirmation_and_idempotent_retry(client):
 async def test_paper_attempt_creates_real_learning_report(client):
     parent = await register_parent(client)
     auth = {"Authorization": f"Bearer {parent['accessToken']}"}
-    student = await create_student(client, parent["accessToken"])
+    student = await create_student(client, parent)
     question_response = await client.get("/api/papers/1/questions", headers=auth)
     assert question_response.status_code == 200
     questions = question_response.json()["data"]["questions"]
@@ -208,7 +259,7 @@ async def test_paper_attempt_creates_real_learning_report(client):
 async def test_general_chat_refreshes_latest_student_profile_in_same_session(client):
     parent = await register_parent(client)
     auth = {"Authorization": f"Bearer {parent['accessToken']}"}
-    student = await create_student(client, parent["accessToken"])
+    student = await create_student(client, parent)
 
     first = await client.post("/api/ai/chat", headers=auth, json={
         "studentProfileId": student["id"], "clientMessageId": str(uuid.uuid4()),

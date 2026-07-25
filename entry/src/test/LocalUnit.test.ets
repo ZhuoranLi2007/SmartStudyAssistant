@@ -1,4 +1,8 @@
 import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
+import {
+  DistributedStudySnapshot,
+  DistributedStudySnapshotCodec
+} from '../main/ets/model/DistributedStudyModels';
 
 export default function localUnitTest() {
   describe('localUnitTest', () => {
@@ -28,6 +32,38 @@ export default function localUnitTest() {
       // Defines a variety of assertion methods, which are used to declare expected boolean conditions.
       expect(a).assertContain(b);
       expect(a).assertEqual(a);
+    });
+    it('distributedSessionIdIsStableAndSafe', 0, () => {
+      expect(DistributedStudySnapshotCodec.sessionIdForUser(42))
+        .assertEqual('smartstudy_user_42');
+      expect(DistributedStudySnapshotCodec.sessionIdForUser(-1))
+        .assertEqual('smartstudy_user_0');
+    });
+    it('distributedSnapshotOnlyKeepsAllowedFields', 0, () => {
+      const source = new DistributedStudySnapshot();
+      source.routeName = 'AdminPage';
+      source.taskId = -10;
+      source.taskStatus = '任意状态';
+      source.selectedDate = '2026-99-99';
+      source.filter = 'UNKNOWN';
+      source.updatedAt = 100;
+      const normalized: DistributedStudySnapshot = DistributedStudySnapshotCodec.normalize(source);
+      expect(normalized.routeName).assertEqual('');
+      expect(normalized.taskId).assertEqual(0);
+      expect(normalized.taskStatus).assertEqual('');
+      expect(normalized.selectedDate).assertEqual('');
+      expect(normalized.filter).assertEqual('WEEK');
+    });
+    it('distributedSnapshotRejectsOldSchema', 0, () => {
+      const source = new DistributedStudySnapshot();
+      source.schemaVersion = 0;
+      source.routeName = 'StudyPlanPage';
+      source.selectedDate = '2026-07-26';
+      source.filter = 'TODAY';
+      source.updatedAt = 100;
+      expect(DistributedStudySnapshotCodec.isUsable(source)).assertFalse();
+      const normalized: DistributedStudySnapshot = DistributedStudySnapshotCodec.normalize(source);
+      expect(DistributedStudySnapshotCodec.isUsable(normalized)).assertFalse();
     });
   });
 }
