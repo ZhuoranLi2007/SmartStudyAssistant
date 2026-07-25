@@ -1,13 +1,15 @@
-import { AppRoutes } from '../../common/AppRoutes';
 import { AiCard, AiPlanTask } from '../../model/AiModels';
 
 @Component
 export struct StudyPlanCard {
-  @Consume('appPathStack') appPathStack: NavPathStack;
   @Prop card: AiCard;
+  @State isAdded: boolean = false;
 
-  private openPlan(): void {
-    this.appPathStack.pushPathByName(AppRoutes.STUDY_PLAN, null);
+  private addToPlan(): void {
+    this.isAdded = true;
+    this.getUIContext().getPromptAction().showToast({
+      message: '已添加到我的学习计划（演示）'
+    });
   }
 
   private dayText(date: string): string {
@@ -38,7 +40,13 @@ export struct StudyPlanCard {
       } else {
         Text(this.card.subtitle || '学习计划已生成，可进入学习计划查看').fontSize(12).fontColor('#667085').width('100%')
       }
-      Button('查看完整计划').fontSize(12).height(34).width('100%').backgroundColor('#356DF3').onClick(() => this.openPlan())
+      Button(this.isAdded ? '已添加到我的学习计划' : '添加到我的学习计划')
+        .fontSize(12)
+        .height(34)
+        .width('100%')
+        .backgroundColor(this.isAdded ? '#98A2B3' : '#356DF3')
+        .accessibilityText('添加到我的学习计划')
+        .onClick(() => this.addToPlan())
     }.padding(13).width('100%').backgroundColor('#F9FBFF').borderRadius(14).border({ width: 1, color: '#DCE6FB' })
   }
 }

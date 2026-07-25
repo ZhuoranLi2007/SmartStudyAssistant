@@ -19,7 +19,6 @@ from server.models import (
     WrongQuestion,
 )
 from server.services.access_service import ensure_student_access
-from server.services.recommendation_service import calculate_level
 
 
 async def my_courses(db: AsyncSession, user: User, student_profile_id: int | None = None) -> list[dict]:
@@ -424,99 +423,47 @@ def _build_ai_suggestion(
 
 async def generate_week_plan(db: AsyncSession, user: User, student_profile_id: int, session_id: str | None) -> dict:
     profile = await ensure_student_access(db, user, student_profile_id)
-    if session_id:
-        existing_tasks = list((await db.scalars(select(StudyTask).where(
-            StudyTask.student_profile_id == student_profile_id,
-            StudyTask.source_session_id == session_id,
-        ).order_by(StudyTask.scheduled_date, StudyTask.id))).all())
-        if existing_tasks:
-            return {
-                "planId": existing_tasks[0].id,
-                "title": f"{profile.name}的一周学习计划",
-                "taskCount": len(existing_tasks),
-                "tasks": [{
-                    "id": item.id,
-                    "date": item.scheduled_date.isoformat() if item.scheduled_date else "",
-                    "title": item.name,
-                    "taskType": item.task_type,
-                    "durationMinutes": item.duration_minutes,
-                    "courseId": item.target_id if item.task_type == "课程" else None,
-                    "paperId": item.target_id if item.task_type == "试卷" else None,
-                    "knowledgePoint": item.knowledge_point,
-                    "status": item.status,
-                } for item in existing_tasks],
-            }
     subject_profile = await db.scalar(select(StudentSubjectProfile).where(
         StudentSubjectProfile.student_profile_id == student_profile_id
     ).order_by(StudentSubjectProfile.updated_at.desc()))
     if subject_profile is None:
         raise HTTPException(status_code=404, detail="未找到学科档案，请先完善学生档案")
 
-    level = calculate_level(subject_profile.recent_score)
-    weak_points = subject_profile.weak_points or []
     subject = subject_profile.subject
-
-    all_courses = list((await db.scalars(select(Course).where(
-        Course.grade == profile.grade, Course.subject == subject,
-        Course.level == level, Course.is_active.is_(True)
-    ))).all())
-    matched_courses = []
-    for point in weak_points:
-        for course in all_courses:
-            if point in (course.knowledge_points or []) and course not in matched_courses:
-                matched_courses.append(course)
-                break
-    courses = matched_courses if matched_courses else all_courses[:4]
-
-    all_papers = list((await db.scalars(select(Paper).where(
-        Paper.grade == profile.grade, Paper.subject == subject,
-        Paper.suitable_course_level == level, Paper.is_active.is_(True)
-    ))).all())
-    matched_papers = []
-    for point in weak_points:
-        for paper in all_papers:
-            if point in (paper.knowledge_points or []) and paper not in matched_papers:
-                matched_papers.append(paper)
-                break
-    papers = matched_papers if matched_papers else all_papers[:4]
-
-    if not courses and not papers:
-        raise HTTPException(status_code=404, detail="暂无可生成计划的课程或试卷")
+    weak_points = subject_profile.weak_points or [f"{subject}基础知识"]
+    score = subject_profile.recent_score
+    level_text = "基础巩固" if score < 60 else "同步提升" if score < 85 else "拓展提高"
     duration = max(20, min(90, profile.weekly_study_minutes // 7))
-    tasks: list[StudyTask] = []
+
+    primary_point = weak_points[0]
+    secondary_point = weak_points[1] if len(weak_points) > 1 else primary_point
+    task_templates = [
+        ("知识回顾", f"{primary_point}知识回顾", primary_point),
+        ("专项练习", f"{primary_point}专项练习", primary_point),
+        ("知识梳理", f"{secondary_point}易错点梳理", secondary_point),
+        ("巩固练习", f"{secondary_point}巩固练习", secondary_point),
+        ("综合训练", f"{subject}{level_text}综合训练", subject),
+        ("错题复盘", f"{primary_point}错题复盘与自测", primary_point),
+        ("周总结", f"{subject}本周总结与下周目标", subject),
+    ]
+    tasks: list[dict] = []
     for index in range(7):
-        use_course = index % 2 == 0 and courses
-        target = courses[index % len(courses)] if use_course else papers[index % len(papers)] if papers else courses[index % len(courses)]
-        task_type = "课程" if isinstance(target, Course) else "试卷"
-        task = StudyTask(
-            student_profile_id=student_profile_id,
-            creator_user_id=user.id,
-            task_type=task_type,
-            target_id=target.id,
-            name=target.name,
-            subject=target.subject,
-            difficulty=target.difficulty,
-            scheduled_date=date.today() + timedelta(days=index),
-            duration_minutes=duration,
-            knowledge_point=(target.knowledge_points or [""])[0],
-            source_session_id=session_id,
-        )
-        db.add(task)
-        tasks.append(task)
-    await db.flush()
+        task_type, title, knowledge_point = task_templates[index]
+        tasks.append({
+            "id": -(index + 1),
+            "date": (date.today() + timedelta(days=index)).isoformat(),
+            "title": title,
+            "taskType": task_type,
+            "durationMinutes": duration,
+            "courseId": None,
+            "paperId": None,
+            "knowledgePoint": knowledge_point,
+            "status": "未开始",
+        })
+
     return {
-        "planId": tasks[0].id,
+        "planId": 0,
         "title": f"{profile.name}的一周学习计划",
         "taskCount": len(tasks),
-        "tasks": [{
-            "id": item.id,
-            "date": item.scheduled_date.isoformat(),
-            "title": item.name,
-            "taskType": item.task_type,
-            "durationMinutes": item.duration_minutes,
-            "courseId": item.target_id if item.task_type == "课程" else None,
-            "paperId": item.target_id if item.task_type == "试卷" else None,
-            "knowledgePoint": item.knowledge_point,
-            "status": item.status,
-        } for item in tasks],
+        "tasks": tasks,
     }

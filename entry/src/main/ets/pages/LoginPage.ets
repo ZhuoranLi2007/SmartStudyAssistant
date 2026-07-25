@@ -1,10 +1,11 @@
 import { common } from '@kit.AbilityKit';
-import { promptAction } from '@kit.ArkUI';
-import { AppRoutes, ProfileSetupRouteParam } from '../common/AppRoutes';
+import { AppRoutes, DistributedStudyRouteParam, ProfileSetupRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { AppConfig } from '../common/AppConfig';
+import { DistributedStudySnapshot } from '../model/DistributedStudyModels';
 import { LoginResult } from '../model/DomainModels';
 import { AuthService } from '../service/AuthService';
+import { DistributedStudyService } from '../service/DistributedStudyService';
 import { SessionSnapshot, SessionStorageService } from '../service/SessionStorageService';
 
 @Component
@@ -13,6 +14,27 @@ export struct LoginPage {
   @State account: string = '';
   @State password: string = '';
   @State isLoading: boolean = false;
+
+  private showToast(message: string): void {
+    this.getUIContext().getPromptAction().showToast({ message: message });
+  }
+
+  private getLoginErrorMessage(error: Object): string {
+    const errorMessage: string = (error as Error).message || '';
+    const errorDetail: string = `${errorMessage} ${JSON.stringify(error)}`;
+    if (errorDetail.includes('HTTP 401')) {
+      return '账号或密码错误';
+    }
+    const normalizedDetail: string = errorDetail.toLowerCase();
+    if (errorDetail.includes('2300028') ||
+      errorDetail.includes('2300007') ||
+      normalizedDetail.includes('timeout') ||
+      normalizedDetail.includes('connect') ||
+      normalizedDetail.includes('network')) {
+      return '无法连接服务器，请检查后端和网络';
+    }
+    return '登录失败，请稍后重试';
+  }
 
   private async enterApp(token: string, userId: number, username: string, role: string,
     studentProfileId: number, profileCompleted: boolean): Promise<void> {
@@ -37,13 +59,25 @@ export struct LoginPage {
       param.requireSetup = true;
       this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, param);
     } else {
-      this.appPathStack.pushPathByName(AppRoutes.HOME, null);
+      const distributedSnapshot: DistributedStudySnapshot | undefined =
+        DistributedStudyService.consumePendingSnapshot(userId);
+      if (distributedSnapshot !== undefined && distributedSnapshot.routeName === AppRoutes.STUDY_PLAN) {
+        const param = new DistributedStudyRouteParam();
+        param.taskId = distributedSnapshot.taskId;
+        param.taskStatus = distributedSnapshot.taskStatus;
+        param.selectedDate = distributedSnapshot.selectedDate;
+        param.filter = distributedSnapshot.filter;
+        param.updatedAt = distributedSnapshot.updatedAt;
+        this.appPathStack.pushPathByName(AppRoutes.STUDY_PLAN, param);
+      } else {
+        this.appPathStack.pushPathByName(AppRoutes.HOME, null);
+      }
     }
   }
 
   private async login(): Promise<void> {
     if (!this.account.trim() || !this.password.trim()) {
-      promptAction.showToast({ message: '请输入账号和密码' });
+      this.showToast('请输入账号和密码');
       return;
     }
     this.isLoading = true;
@@ -55,7 +89,7 @@ export struct LoginPage {
       }
       const result: LoginResult = await AuthService.login(this.account, this.password);
       if (result.studentProfileId <= 0) {
-        promptAction.showToast({ message: '账号缺少学习档案，请重新注册' });
+        this.showToast('账号缺少学习档案，请重新注册');
         return;
       }
       await this.enterApp(
@@ -67,7 +101,7 @@ export struct LoginPage {
         result.profileCompleted === true
       );
     } catch (error) {
-      promptAction.showToast({ message: '登录失败，请稍后重试' });
+      this.showToast(this.getLoginErrorMessage(error as Object));
       console.error(`登录失败: ${JSON.stringify(error)}`);
     } finally {
       this.isLoading = false;

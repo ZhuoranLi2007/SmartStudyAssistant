@@ -56,3 +56,11 @@ export class WrongQuestionTrainingRouteParam {
   wrongQuestionId: number = 0;
   taskId: number = 0;
 }
+
+export class DistributedStudyRouteParam {
+  taskId: number = 0;
+  taskStatus: string = '';
+  selectedDate: string = '';
+  filter: string = 'WEEK';
+  updatedAt: number = 0;
+}

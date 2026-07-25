@@ -1,6 +1,5 @@
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -12,11 +11,10 @@ from sqlalchemy import text
 from server.api import api_router
 from server.config import get_settings
 from server.database import SessionLocal, engine, init_database
-from server.services.seed_service import clear_user_data, seed_catalog
+from server.services.seed_service import seed_catalog
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("smartstudy")
-USER_DATA_CLEARED_MARKER = Path(__file__).resolve().parent / ".user_data_cleared"
 
 
 async def _ensure_favorites_table() -> None:
@@ -92,10 +90,6 @@ async def lifespan(_app: FastAPI):
     await init_database()
     await _ensure_schema_patches()
     async with SessionLocal() as session:
-        if not USER_DATA_CLEARED_MARKER.exists():
-            await clear_user_data(session)
-            USER_DATA_CLEARED_MARKER.write_text("cleared", encoding="utf-8")
-            logger.info("已清空全部账号与学习数据，请重新注册（仅执行一次）")
         await seed_catalog(session)
     yield
 

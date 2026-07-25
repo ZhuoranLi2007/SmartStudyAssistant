@@ -12,6 +12,7 @@ export struct ChatMessageBubble {
   @Prop message: ChatMessage;
   @Prop speakingMessageId: string = '';
   onRead: (content: string, messageId: string) => void = (_content: string, _messageId: string): void => {};
+  onCopy: (content: string) => void = (_content: string): void => {};
   onRetry: (message: ChatMessage) => void = (_message: ChatMessage): void => {};
 
   @Builder
@@ -32,37 +33,75 @@ export struct ChatMessageBubble {
   }
 
   @Builder
+  private assistantActions() {
+    Row({ space: 4 }) {
+      Button({ type: ButtonType.Circle, stateEffect: true }) {
+        if (this.speakingMessageId === this.message.id) {
+          SymbolGlyph($r('sys.symbol.square'))
+            .fontSize(15)
+            .fontColor(['#2F6BFF'])
+        } else {
+          SymbolGlyph($r('sys.symbol.speaker_wave_3'))
+            .fontSize(16)
+            .fontColor(['#667085'])
+        }
+      }
+      .width(36)
+      .height(36)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText(this.speakingMessageId === this.message.id ? '停止朗读' : '朗读')
+      .onClick(() => this.onRead(this.message.content, this.message.id))
+
+      Button({ type: ButtonType.Circle, stateEffect: true }) {
+        SymbolGlyph($r('sys.symbol.rectangle_on_rectangle'))
+          .fontSize(16)
+          .fontColor(['#667085'])
+      }
+      .width(36)
+      .height(36)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText('复制')
+      .onClick(() => this.onCopy(this.message.content))
+    }
+    .width('100%')
+    .height(36)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
   private assistantMessage() {
     Row({ space: 9 }) {
       ChatAvatar({ role: ChatRole.ASSISTANT, avatarSize: 40 })
       Row() {
         Column({ space: 6 }) {
           Text('智学助手').fontSize(11).fontColor('#667085').width('100%')
-          Column({ space: 10 }) {
-            if (this.message.isStreaming && !this.message.content) {
-              TypingIndicator()
-            } else if (this.message.content) {
-              MarkdownRenderer({ content: this.message.content })
+          Column({ space: 8 }) {
+            Column({ space: 10 }) {
+              if (this.message.isStreaming && !this.message.content) {
+                TypingIndicator()
+              } else if (this.message.content) {
+                MarkdownRenderer({ content: this.message.content })
+              }
+              this.structuredCards()
+              ChatSourceList({ sources: this.message.sources })
+              if (this.message.fallbackUsed) {
+                Text('本地演示回答').fontSize(9).fontColor('#B54708')
+                  .padding({ left: 7, right: 7, top: 3, bottom: 3 })
+                  .backgroundColor('#FFF4E5').borderRadius(7).alignSelf(ItemAlign.Start)
+              }
+              if (this.message.errorMessage) {
+                Row({ space: 8 }) {
+                  Text(this.message.errorMessage).fontSize(11).fontColor('#B42318').layoutWeight(1)
+                  Text('重试').fontSize(12).fontColor('#2F6BFF').fontWeight(FontWeight.Medium)
+                    .onClick(() => this.onRetry(this.message))
+                }.padding(8).width('100%').backgroundColor('#FEF3F2').borderRadius(8)
+              }
             }
-            this.structuredCards()
-            ChatSourceList({ sources: this.message.sources })
-            if (this.message.fallbackUsed) {
-              Text('本地演示回答').fontSize(9).fontColor('#B54708').padding({ left: 7, right: 7, top: 3, bottom: 3 })
-                .backgroundColor('#FFF4E5').borderRadius(7).alignSelf(ItemAlign.Start)
-            }
-            if (this.message.errorMessage) {
-              Row({ space: 8 }) {
-                Text(this.message.errorMessage).fontSize(11).fontColor('#B42318').layoutWeight(1)
-                Text('重试').fontSize(12).fontColor('#2F6BFF').fontWeight(FontWeight.Medium)
-                  .onClick(() => this.onRetry(this.message))
-              }.padding(8).width('100%').backgroundColor('#FEF3F2').borderRadius(8)
-            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+
             if (!this.message.isStreaming && this.message.content) {
-              Row() {
-                Text(this.speakingMessageId === this.message.id ? '停止朗读' : '朗读')
-                  .fontSize(10).fontColor('#667085')
-                  .onClick(() => this.onRead(this.message.content, this.message.id))
-              }.width('100%')
+              this.assistantActions()
             }
           }
           .padding(12)
@@ -70,6 +109,7 @@ export struct ChatMessageBubble {
           .backgroundColor(Color.White)
           .borderRadius(16)
           .border({ width: 1, color: '#EDF0F6' })
+          .alignItems(HorizontalAlign.Start)
         }
         .constraintSize({ maxWidth: '84%' })
         .alignItems(HorizontalAlign.Start)

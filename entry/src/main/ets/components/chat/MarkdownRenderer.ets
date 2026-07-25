@@ -31,6 +31,7 @@ export struct MarkdownRenderer {
     .fontWeight(weight)
     .lineHeight(lineHeight)
     .width('100%')
+    .textAlign(TextAlign.Start)
   }
 
   build() {
