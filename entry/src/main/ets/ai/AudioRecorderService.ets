@@ -72,7 +72,7 @@ class AudioRecorderService {
         } catch (sourceError) {
           console.warn(`AudioRecorder: 源类型 ${sourceType} 启动失败: ${JSON.stringify(sourceError)}`);
           if (capturer) {
-            try { capturer.release(); } catch (e) { /* ignore */ }
+            try { capturer.release(); } catch (_error) {}
           }
           capturer = null;
         }
@@ -128,7 +128,7 @@ class AudioRecorderService {
       return;
     }
 
-    // 检查音频能量，判断是否录制到有效声音
+    // 过滤只有容器头或近似静音的录音，避免把无效文件发送到后端。
     let maxAmplitude: number = 0;
     for (const chunk of pcmChunks) {
       const dv: DataView = new DataView(chunk);
@@ -144,7 +144,6 @@ class AudioRecorderService {
       return;
     }
 
-    // 写入 WAV 文件
     const dataSize: number = totalBytes;
     const fileSize: number = 44 + dataSize;
     const wavBuffer: ArrayBuffer = new ArrayBuffer(fileSize);
@@ -248,11 +247,11 @@ class AudioRecorderService {
 
   private releaseCapturer(): void {
     if (this.audioCapturer) {
-      try { this.audioCapturer.release(); } catch (error) { /* ignore */ }
+      try { this.audioCapturer.release(); } catch (_error) {}
       this.audioCapturer = null;
     }
     if (this.outputFd >= 0) {
-      try { fileIo.closeSync(this.outputFd); } catch (error) { /* ignore */ }
+      try { fileIo.closeSync(this.outputFd); } catch (_error) {}
       this.outputFd = -1;
     }
     this.writeTask = null;
@@ -260,7 +259,7 @@ class AudioRecorderService {
 
   private deleteOutputFile(): void {
     if (this.outputPath) {
-      try { fileIo.unlinkSync(this.outputPath); } catch (error) { /* ignore */ }
+      try { fileIo.unlinkSync(this.outputPath); } catch (_error) {}
       this.outputPath = '';
     }
   }

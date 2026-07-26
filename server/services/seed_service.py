@@ -121,7 +121,7 @@ def _questions_match(
 
 
 async def seed_catalog(db: AsyncSession) -> None:
-    # 课程目录：五年级数学 5 个薄弱知识点 × 3 个层次 = 15 门课
+    # 演示目录固定为 5 个知识点 × 3 个学习层次，重复启动必须得到同一份目录。
     knowledge_points = ["分数", "小数", "百分数", "应用题", "几何"]
     levels = ["基础巩固型", "中等提升型", "拔高拓展型"]
     difficulties = ["基础", "中等", "较难"]
@@ -151,7 +151,6 @@ async def seed_catalog(db: AsyncSession) -> None:
             })
     target_names = {c["name"] for c in target_courses}
 
-    # 停用旧课程，确保首页只显示这 15 门
     for course in list((await db.scalars(select(Course))).all()):
         course.is_active = course.name in target_names
 
@@ -163,7 +162,6 @@ async def seed_catalog(db: AsyncSession) -> None:
         existing_course_names.add(data["name"])
     await db.flush()
 
-    # 试卷目录：五年级数学 5 个薄弱知识点 × 3 个层次 = 15 套卷，每套 5 题
     target_papers = []
     for level_index, level in enumerate(levels):
         for point in knowledge_points:
@@ -178,7 +176,7 @@ async def seed_catalog(db: AsyncSession) -> None:
             })
     target_paper_names = {p["name"] for p in target_papers}
 
-    # 停用旧试卷（只处理公共试卷，保留用户 AI 组卷）
+    # 目录刷新只管理公共资源，用户生成的试卷不能被启动种子逻辑停用。
     for paper in list((await db.scalars(select(Paper))).all()):
         if not paper.is_ai_generated:
             paper.is_active = paper.name in target_paper_names
@@ -206,7 +204,7 @@ async def seed_catalog(db: AsyncSession) -> None:
     papers = list((await db.scalars(select(Paper).order_by(Paper.id))).all())
     target_paper_ids = [paper.id for paper in papers if paper.name in target_paper_names]
 
-    # 检测每套目标试卷的题目是否与 JSON 完全一致；任何不一致或 JSON 发生变化都清空后重新生成
+    # 内容哈希和逐题校验共同保证题库更新可重复，同时避免每次启动无意义地重建题目。
     current_hash = _paper_questions_hash()
     hash_marker = _paper_questions_hash_path()
     previous_hash = ""

@@ -143,8 +143,6 @@ class SpeechAiService {
     }
   }
 
-  // ====== 后端语音识别（通过 AudioCapturer 录音 + 后端 API 识别）======
-
   isBackendAsrSupported(): boolean {
     return audioRecorderService.isRecordingSupported();
   }
@@ -201,7 +199,6 @@ class SpeechAiService {
         'Authorization': token ? `Bearer ${token}` : ''
       } as RequestHeader;
 
-      // 构造 multipart 请求体
       const encoder = new util.TextEncoder();
       const headerPart: string = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: audio/wav\r\n\r\n`;
       const footerPart: string = `\r\n--${boundary}--\r\n`;
@@ -249,7 +246,7 @@ class SpeechAiService {
   }
 
   private deleteAudioFile(filePath: string): void {
-    try { fileIo.unlinkSync(filePath); } catch (error) { /* ignore */ }
+    try { fileIo.unlinkSync(filePath); } catch (_error) {}
   }
 
   private async ensureTtsEngine(): Promise<boolean> {

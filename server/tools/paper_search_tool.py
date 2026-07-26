@@ -28,7 +28,7 @@ class PaperSearchTool(BusinessTool):
         if subject_profile is not None:
             subject = subject_profile.subject
 
-        # 若用户没有显式指定层次，则根据档案分数自动计算
+        # 未指定层次时复用课程推荐的成绩分层口径，保证课卷难度一致。
         level = arguments.get("difficulty")
         if level:
             level = _DIFFICULTY_TO_LEVEL.get(level, level)
@@ -45,7 +45,7 @@ class PaperSearchTool(BusinessTool):
 
         rows = list((await context.db.scalars(statement.order_by(Paper.id))).all())
 
-        # 优先按薄弱知识点匹配
+        # 薄弱点命中优先于普通难度排序，确保推荐结果体现学生档案差异。
         weak_points = subject_profile.weak_points if subject_profile is not None else []
         knowledge_point = arguments.get("knowledgePoint")
         target_points = [knowledge_point] if knowledge_point else weak_points

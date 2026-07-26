@@ -121,7 +121,7 @@ async def submit_attempt(
                 wrong.wrong_count += 1
     attempt.knowledge_stats_json = knowledge_stats
 
-    # 同步将学习计划中对应的未完成的试卷任务标记为已完成
+    # 答卷提交是学习闭环的事实事件：保存成绩和错题后，再完成最近一条对应计划任务。
     task = await db.scalar(select(StudyTask).where(
         StudyTask.student_profile_id == student_profile_id,
         StudyTask.task_type == "试卷",
@@ -180,7 +180,7 @@ async def add_wrong_questions_batch(
         correct_answer = getattr(item, "correct_answer", "") or ""
         explanation = getattr(item, "explanation", "") or ""
         if existing is None:
-            # question_id 有外键时必须落到真实题目；否则尽量绑定试卷第一题避免失败
+            # 兼容旧客户端缺少 questionId 的批量数据，但错题外键仍必须绑定到真实题目。
             bind_question_id = question_id
             if bind_question_id <= 0:
                 fallback = await db.scalar(select(PaperQuestion.id).where(
@@ -311,7 +311,7 @@ async def learning_report(db: AsyncSession, user: User, student_profile_id: int)
     week_start_dt = datetime.combine(week_start, datetime.min.time())
     week_end_dt = datetime.combine(week_end, datetime.min.time())
 
-    # 本周完成课程（状态为 COMPLETED 且本周有更新）
+    # 报告统一使用本地自然周：[周一 00:00, 下周一 00:00)，避免各指标时间口径不一致。
     completed_courses = await db.scalar(select(func.count(CourseEnrollment.id)).where(
         CourseEnrollment.student_profile_id == student_profile_id,
         CourseEnrollment.status == "COMPLETED",
@@ -319,7 +319,6 @@ async def learning_report(db: AsyncSession, user: User, student_profile_id: int)
         CourseEnrollment.updated_at < week_end_dt,
     )) or 0
 
-    # 本周完成试卷与平均正确率
     attempt_count, average_accuracy = (await db.execute(select(
         func.count(PracticeAttempt.id), func.coalesce(func.avg(PracticeAttempt.score), 0.0)
     ).where(
@@ -328,7 +327,7 @@ async def learning_report(db: AsyncSession, user: User, student_profile_id: int)
         PracticeAttempt.submitted_at < week_end_dt,
     ))).one()
 
-    # 本周学习任务完成率（按本周计划日期统计，与学习计划页区分：报告聚焦本周执行结果）
+    # 任务按计划日期统计，课程和错题按实际更新时间统计，分别反映计划执行与真实行为。
     task_count, completed_tasks = (await db.execute(select(
         func.count(StudyTask.id),
         func.coalesce(func.sum(case((StudyTask.status == "已完成", 1), else_=0)), 0),
@@ -338,7 +337,6 @@ async def learning_report(db: AsyncSession, user: User, student_profile_id: int)
         StudyTask.scheduled_date < week_end,
     ))).one()
 
-    # 本周薄弱知识点（未掌握且本周有更新的错题）
     unresolved = list((await db.scalars(select(WrongQuestion).where(
         WrongQuestion.student_profile_id == student_profile_id,
         WrongQuestion.mastered.is_(False),
@@ -346,7 +344,6 @@ async def learning_report(db: AsyncSession, user: User, student_profile_id: int)
         WrongQuestion.updated_at < week_end_dt,
     ))).all())
 
-    # 本周进步知识点（已掌握且本周有更新的错题）
     mastered = list((await db.scalars(select(WrongQuestion).where(
         WrongQuestion.student_profile_id == student_profile_id,
         WrongQuestion.mastered.is_(True),
@@ -433,6 +430,7 @@ async def generate_week_plan(db: AsyncSession, user: User, student_profile_id: i
     weak_points = subject_profile.weak_points or [f"{subject}基础知识"]
     score = subject_profile.recent_score
     level_text = "基础巩固" if score < 60 else "同步提升" if score < 85 else "拓展提高"
+    # 每日时长由周预算均分，并限制在适合单次学习的 20～90 分钟。
     duration = max(20, min(90, profile.weekly_study_minutes // 7))
 
     primary_point = weak_points[0]
@@ -461,6 +459,7 @@ async def generate_week_plan(db: AsyncSession, user: User, student_profile_id: i
             "status": "未开始",
         })
 
+    # 负任务 ID 和 planId=0 明确表示预览，避免前端把 AI 建议误认为已落库任务。
     return {
         "planId": 0,
         "title": f"{profile.name}的一周学习计划",
