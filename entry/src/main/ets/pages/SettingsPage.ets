@@ -5,13 +5,15 @@ import { AppStorageKeys } from '../common/AppStorageKeys';
 import { PageHeader } from '../components/PageHeader';
 import { DistributedStatusListener, DistributedSyncStatus } from '../model/DistributedStudyModels';
 import { AuthSessionService } from '../service/AuthSessionService';
-import { DistributedStudyService } from '../service/DistributedStudyService';
+import { DistributedSyncService } from '../service/DistributedStudyService';
 
 @Component
 export struct SettingsPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @StorageLink(AppStorageKeys.USER_ID) userId: number = 0;
   @StorageLink(AppStorageKeys.DISTRIBUTED_SYNC_ENABLED) distributedSyncEnabled: boolean = false;
+  @StorageLink(AppStorageKeys.DISTRIBUTED_LAST_EVENT_TYPE) distributedLastEventType: string = '';
+  @StorageLink(AppStorageKeys.DISTRIBUTED_LAST_EVENT_AT) distributedLastEventAt: number = 0;
   @State notificationEnabled: boolean = true;
   @State studyReminderEnabled: boolean = true;
   @State distributedStatus: DistributedSyncStatus = DistributedSyncStatus.DISABLED;
@@ -23,12 +25,12 @@ export struct SettingsPage {
     };
 
   aboutToAppear(): void {
-    this.distributedStatus = DistributedStudyService.getStatus();
-    DistributedStudyService.subscribeStatus(this.distributedStatusListener);
+    this.distributedStatus = DistributedSyncService.getStatus();
+    DistributedSyncService.subscribeStatus(this.distributedStatusListener);
   }
 
   aboutToDisappear(): void {
-    DistributedStudyService.unsubscribeStatus(this.distributedStatusListener);
+    DistributedSyncService.unsubscribeStatus(this.distributedStatusListener);
   }
 
   private openInfo(type: string): void {
@@ -69,14 +71,42 @@ export struct SettingsPage {
     if (this.distributedStatus === DistributedSyncStatus.WAITING_DEVICE) return '已开启，等待可信设备';
     if (this.distributedStatus === DistributedSyncStatus.CONNECTED) return '已连接可信设备';
     if (this.distributedStatus === DistributedSyncStatus.UNSUPPORTED) return '当前设备不支持';
-    if (this.distributedStatus === DistributedSyncStatus.PERMISSION_DENIED) return '权限被拒绝';
-    if (this.distributedStatus === DistributedSyncStatus.ERROR) return '初始化失败';
+    if (this.distributedStatus === DistributedSyncStatus.PERMISSION_DENIED) return '未授权';
+    if (this.distributedStatus === DistributedSyncStatus.ERROR) return '同步异常';
     return '未开启';
+  }
+
+  private distributedStatusDescription(): string {
+    if (this.distributedStatus === DistributedSyncStatus.WAITING_PERMISSION) return '请在系统弹窗中允许分布式数据同步权限';
+    if (this.distributedStatus === DistributedSyncStatus.WAITING_DEVICE) return '权限已授予，请确认两台手机已建立可信设备关系';
+    if (this.distributedStatus === DistributedSyncStatus.CONNECTED) return '远端业务变化会在当前页面自动刷新';
+    if (this.distributedStatus === DistributedSyncStatus.UNSUPPORTED) return '当前系统版本或设备不支持分布式数据对象';
+    if (this.distributedStatus === DistributedSyncStatus.PERMISSION_DENIED) return '请重新打开开关，并在系统弹窗中选择允许';
+    if (this.distributedStatus === DistributedSyncStatus.ERROR) return '初始化失败，请关闭开关后重试';
+    return '开启后，同账号可信设备可以同步学习状态';
+  }
+
+  private distributedStatusColor(): string {
+    if (this.distributedStatus === DistributedSyncStatus.CONNECTED) return '#027A48';
+    if (this.distributedStatus === DistributedSyncStatus.WAITING_DEVICE ||
+      this.distributedStatus === DistributedSyncStatus.WAITING_PERMISSION) return '#B54708';
+    if (this.distributedStatus === DistributedSyncStatus.PERMISSION_DENIED ||
+      this.distributedStatus === DistributedSyncStatus.ERROR) return '#D92D20';
+    return '#667085';
+  }
+
+  private formatSyncTime(value: number): string {
+    if (value <= 0) return '';
+    const date = new Date(value);
+    const hour: string = `${date.getHours()}`.padStart(2, '0');
+    const minute: string = `${date.getMinutes()}`.padStart(2, '0');
+    const second: string = `${date.getSeconds()}`.padStart(2, '0');
+    return `${hour}:${minute}:${second}`;
   }
 
   private async toggleDistributedSync(enabled: boolean): Promise<void> {
     if (!enabled) {
-      await DistributedStudyService.disable();
+      await DistributedSyncService.disable(true);
       this.getUIContext().getPromptAction().showToast({ message: '跨设备学习接续已关闭' });
       return;
     }
@@ -86,7 +116,7 @@ export struct SettingsPage {
       return;
     }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    const status: DistributedSyncStatus = await DistributedStudyService.enable(context, this.userId);
+    const status: DistributedSyncStatus = await DistributedSyncService.enable(context, this.userId);
     if (status === DistributedSyncStatus.WAITING_DEVICE) {
       this.getUIContext().getPromptAction().showToast({ message: '已开启，正在等待可信鸿蒙设备' });
     } else if (status === DistributedSyncStatus.CONNECTED) {
@@ -131,7 +161,7 @@ export struct SettingsPage {
               Divider().color('#EAECF0')
               this.arrowRow('清除缓存', 'CACHE')
             }.padding({ left: 16, right: 16 }).width('100%').backgroundColor(Color.White).borderRadius(18)
-            Column({ space: 8 }) {
+            Column({ space: 12 }) {
               Row() {
                 Column({ space: 4 }) {
                   Row({ space: 8 }) {
@@ -141,12 +171,26 @@ export struct SettingsPage {
                   }
                   Text('通过鸿蒙分布式数据对象同步学习计划状态')
                     .fontSize(12).fontColor('#667085')
-                  Text(this.distributedStatusText()).fontSize(12)
-                    .fontColor(this.distributedSyncEnabled ? '#027A48' : '#98A2B3')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 Toggle({ type: ToggleType.Switch, isOn: this.distributedSyncEnabled })
                   .onChange((value: boolean) => { void this.toggleDistributedSync(value); })
               }.width('100%')
+              Row({ space: 10 }) {
+                Text('●').fontSize(13).fontColor(this.distributedStatusColor())
+                Column({ space: 3 }) {
+                  Text(this.distributedStatusText()).fontSize(14).fontWeight(FontWeight.Medium)
+                    .fontColor(this.distributedStatusColor())
+                  Text(this.distributedStatusDescription()).fontSize(12).fontColor('#667085')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              }
+              .width('100%')
+              .padding(12)
+              .backgroundColor('#F8FAFC')
+              .borderRadius(12)
+              if (this.distributedLastEventAt > 0) {
+                Text(`最近同步：${this.distributedLastEventType} · ${this.formatSyncTime(this.distributedLastEventAt)}`)
+                  .fontSize(11).fontColor('#475467').width('100%')
+              }
               Text('受设备条件限制时会提示不支持，不影响普通学习功能。')
                 .fontSize(11).fontColor('#98A2B3').width('100%')
             }.padding(16).width('100%').backgroundColor(Color.White).borderRadius(18)

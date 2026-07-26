@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 from server.ai.intent.intent_types import IntentResult, IntentType
-from server.ai.providers import ProviderRouter
+from server.ai.providers import ProviderError, ProviderRouter
 
 
 INTENT_KEYWORDS: dict[IntentType, tuple[str, ...]] = {
@@ -19,6 +19,8 @@ INTENT_KEYWORDS: dict[IntentType, tuple[str, ...]] = {
     IntentType.LEARNING_ANALYSIS: ("学情", "分析成绩", "学习情况", "薄弱知识点"),
     IntentType.KNOWLEDGE_QA: ("怎么学", "是什么", "为什么", "知识点", "解题方法"),
 }
+
+WEAKNESS_MARKERS = ("比较弱", "较弱", "薄弱", "不擅长", "不会", "总出错", "容易错", "掌握不好", "有困难")
 
 REQUIRED_FIELDS: dict[IntentType, tuple[str, ...]] = {
     IntentType.COURSE_RECOMMENDATION: ("grade", "subject", "score", "weakPoints", "learningGoal"),
@@ -89,8 +91,16 @@ def extract_entities(message: str, context: dict[str, Any] | None = None) -> dic
 
 def classify_by_rules(message: str, context: dict[str, Any] | None = None) -> IntentResult:
     entities = extract_entities(message, context)
+    message_weak_points = [point for point in (entities.get("weakPoints") or []) if point in message]
     scores = {intent: sum(1 for word in words if word in message) for intent, words in INTENT_KEYWORDS.items()}
     intent, hits = max(scores.items(), key=lambda item: item[1], default=(IntentType.GENERAL_CHAT, 0))
+    # 单纯陈述“某知识点比较弱”属于学情反馈；只有没有更明确的推荐、试卷等动作时才接管意图。
+    if hits == 0 and message_weak_points and any(marker in message for marker in WEAKNESS_MARKERS):
+        intent = IntentType.LEARNING_ANALYSIS
+        confidence = 0.92
+        missing = [field for field in REQUIRED_FIELDS.get(intent, ()) if not entities.get(field)]
+        clarification = CLARIFICATIONS.get(missing[0]) if missing else None
+        return IntentResult(intent, confidence, entities, missing, clarification)
     if hits == 0:
         intent = IntentType.GENERAL_CHAT if len(message.strip()) >= 2 else IntentType.UNKNOWN
         confidence = 0.45 if intent == IntentType.GENERAL_CHAT else 0.2
@@ -107,24 +117,43 @@ class IntentClassifier:
 
     async def classify(self, message: str, context: dict[str, Any] | None = None) -> IntentResult:
         rule = classify_by_rules(message, context)
-        if rule.confidence >= 0.7:
+        # 本地 Mock 和未配置模型时保留确定性规则；真实 DeepSeek 可用时由模型承担主要意图理解。
+        if not self.provider.configured or self.provider.provider.name == "mock":
             return rule
         fallback = json.dumps({"intent": rule.intent.value, "confidence": rule.confidence}, ensure_ascii=False)
+        safe_context = {
+            key: value for key, value in (context or {}).items()
+            if key in {"grade", "subject", "score", "weakPoints", "learningGoal", "weeklyStudyMinutes"}
+        }
         prompt = (
-            "请将用户教育咨询意图分类并只输出 JSON 对象，字段为 intent 和 confidence。"
-            f"允许的 intent：{','.join(item.value for item in IntentType)}。用户消息：{message}"
-        )
-        response = await self.provider.complete(
-            [{"role": "system", "content": "你是教育意图分类器，必须输出 JSON。"}, {"role": "user", "content": prompt}],
-            json_mode=True,
-            fallback_content=fallback,
+            "请根据用户本轮消息和学习上下文判断最主要的教育咨询意图，只输出 JSON 对象，"
+            "字段为 intent 和 confidence，不要解释。用户陈述某类题较弱通常属于 LEARNING_ANALYSIS；"
+            "询问知识概念或解题方法属于 KNOWLEDGE_QA；只有明确要求创建订单才属于 ORDER_CREATION。"
+            f"允许的 intent：{','.join(item.value for item in IntentType)}。"
+            f"学习上下文：{json.dumps(safe_context, ensure_ascii=False)}。用户消息：{message}"
         )
         try:
+            response = await self.provider.complete(
+                [{"role": "system", "content": "你是教育意图分类器，必须输出 JSON。"}, {"role": "user", "content": prompt}],
+                json_mode=True,
+                fallback_content=fallback,
+                temperature=0.0,
+                max_tokens=300,
+            )
+        except ProviderError:
+            return rule
+        try:
             parsed = json.loads(response.content)
+            if not isinstance(parsed, dict):
+                return rule
             intent = IntentType(str(parsed.get("intent", rule.intent.value)))
             confidence = float(parsed.get("confidence", rule.confidence))
-        except (ValueError, TypeError, json.JSONDecodeError):
+        except (AttributeError, KeyError, ValueError, TypeError, json.JSONDecodeError):
             return rule
+        # 写操作属于安全边界：模型不能把普通咨询提升为创建订单，明确写入词仍以规则结果为准。
+        if intent == IntentType.ORDER_CREATION and rule.intent != IntentType.ORDER_CREATION:
+            intent = rule.intent
+            confidence = rule.confidence
         entities = extract_entities(message, context)
         missing = [field for field in REQUIRED_FIELDS.get(intent, ()) if not entities.get(field)]
         return IntentResult(intent, max(0.0, min(confidence, 1.0)), entities, missing, CLARIFICATIONS.get(missing[0]) if missing else None)

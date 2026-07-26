@@ -99,6 +99,11 @@ class AIChatRequest(BaseModel):
         return value
 
 
+class AISessionCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    student_profile_id: int = Field(validation_alias=AliasChoices("studentProfileId", "student_profile_id"))
+
+
 class OrderCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     student_profile_id: int = Field(validation_alias=AliasChoices("studentProfileId", "student_profile_id"))

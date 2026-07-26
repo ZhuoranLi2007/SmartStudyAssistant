@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from secrets import token_hex
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,6 +35,7 @@ async def serialize_student(db: AsyncSession, profile: StudentProfile) -> dict:
         "bindCode": None if profile.bind_code_used else profile.bind_code,
         "studentUserId": profile.student_user_id,
         "profileCompleted": profile.profile_completed,
+        "updatedAt": profile.updated_at.isoformat(),
         "subjects": [{"subject": item.subject, "recentScore": item.recent_score, "weakPoints": item.weak_points} for item in subjects],
     }
 
@@ -102,6 +104,8 @@ async def create_wrong_questions_batch(
 ):
     result = await add_wrong_questions_batch(db, user, student_id, payload.items)
     await db.commit()
+    result["studentProfileId"] = student_id
+    result["updatedAt"] = datetime.now(timezone.utc).isoformat()
     return ok(result, f"已加入 {result['savedCount']} 道错题")
 
 
@@ -116,7 +120,7 @@ async def update_wrong_question(
         raise HTTPException(status_code=404, detail="错题不存在")
     row.mastered = payload.mastered
     await db.commit()
-    return ok({"id": row.id, "mastered": row.mastered}, "错题状态已更新")
+    return ok({"id": row.id, "mastered": row.mastered, "updatedAt": row.updated_at.isoformat()}, "错题状态已更新")
 
 
 @router.delete("/{student_id}/wrong-questions/{wrong_question_id}")
@@ -130,7 +134,8 @@ async def delete_wrong_question(
         raise HTTPException(status_code=404, detail="错题不存在")
     await db.delete(row)
     await db.commit()
-    return ok({"id": wrong_question_id, "deleted": True}, "错题已删除")
+    return ok({"id": wrong_question_id, "deleted": True,
+               "deletedAt": datetime.now(timezone.utc).isoformat()}, "错题已删除")
 
 
 @router.post("/{student_id}/wrong-questions/{wrong_question_id}/remove")
@@ -145,7 +150,8 @@ async def remove_wrong_question(
         raise HTTPException(status_code=404, detail="错题不存在")
     await db.delete(row)
     await db.commit()
-    return ok({"id": wrong_question_id, "deleted": True}, "错题已删除")
+    return ok({"id": wrong_question_id, "deleted": True,
+               "deletedAt": datetime.now(timezone.utc).isoformat()}, "错题已删除")
 
 
 @router.get("/{student_id}/wrong-questions/{wrong_question_id}/training")
@@ -165,6 +171,8 @@ async def submit_wrong_question_retest(
         db, user, student_id, wrong_question_id, payload.selected_index
     )
     await db.commit()
+    result["id"] = wrong_question_id
+    result["updatedAt"] = datetime.now(timezone.utc).isoformat()
     return ok(result, "复测完成")
 
 

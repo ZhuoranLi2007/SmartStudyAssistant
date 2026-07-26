@@ -1,8 +1,11 @@
 import { promptAction } from '@kit.ArkUI';
 import { AppStorageKeys } from '../common/AppStorageKeys';
+import { AppRoutes } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { DataLoadResult, DataSource, WrongQuestion } from '../model/ProfileModels';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { WrongQuestionService } from '../service/WrongQuestionService';
 
 @Component
@@ -14,10 +17,23 @@ export struct WrongQuestionsPage {
   @State source: DataSource = DataSource.LIVE;
   @State isLoading: boolean = false;
   @State busyId: number = 0;
+  private readonly pageKey: string = 'WrongQuestionsPage';
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.WRONG_QUESTIONS;
+    continuation.filter = this.subject;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.WRONG_QUESTION_CREATED,
+      DistributedEventType.WRONG_QUESTION_UPDATED,
+      DistributedEventType.WRONG_QUESTION_DELETED,
+      DistributedEventType.WRONG_QUESTION_RETEST_UPDATED,
+      DistributedEventType.PAPER_SUBMISSION_UPDATED
+    ], async (): Promise<void> => { await this.load(false); }, continuation);
     void this.load(true);
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private copyItem(item: WrongQuestion, mastered: boolean): WrongQuestion {
     return {
@@ -46,6 +62,7 @@ export struct WrongQuestionsPage {
       if (result.data) {
         this.questions = result.data;
         this.source = result.source;
+        DistributedPageService.markFresh(this.pageKey);
       }
     } catch (error) {
       console.error(`错题本加载失败: ${error}`);
@@ -64,6 +81,12 @@ export struct WrongQuestionsPage {
     this.busyId = id;
     try {
       await WrongQuestionService.masterQuestion(studentId, id, true);
+      DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_UPDATED,
+        DistributedEntityType.WRONG_QUESTION, id, '', studentId, AppRoutes.WRONG_QUESTIONS);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, studentId);
+      DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+        DistributedEntityType.STUDY_REPORT, studentId);
       const next: WrongQuestion[] = [];
       for (let index: number = 0; index < this.questions.length; index++) {
         const item: WrongQuestion = this.questions[index];
@@ -94,6 +117,12 @@ export struct WrongQuestionsPage {
     this.busyId = questionId;
     try {
       await WrongQuestionService.deleteQuestion(studentId, questionId);
+      DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_DELETED,
+        DistributedEntityType.WRONG_QUESTION, questionId, '', studentId, AppRoutes.WRONG_QUESTIONS);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, studentId);
+      DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+        DistributedEntityType.STUDY_REPORT, studentId);
       const next: WrongQuestion[] = [];
       for (let index: number = 0; index < this.questions.length; index++) {
         if (this.questions[index].id !== questionId) {

@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -30,6 +30,7 @@ def task_data(row: StudyTask) -> dict:
         "knowledgePoint": row.knowledge_point,
         "sourceSessionId": row.source_session_id or "",
         "createdAt": row.created_at.isoformat(),
+        "updatedAt": row.updated_at.isoformat(),
     }
 
 
@@ -198,4 +199,5 @@ async def delete_task(task_id: int, db: AsyncSession = Depends(get_db), user: Us
     await ensure_student_access(db, user, row.student_profile_id)
     await db.delete(row)
     await db.commit()
-    return ok(None, "学习任务已删除")
+    return ok({"id": task_id, "deleted": True,
+               "deletedAt": datetime.now(timezone.utc).isoformat()}, "学习任务已删除")

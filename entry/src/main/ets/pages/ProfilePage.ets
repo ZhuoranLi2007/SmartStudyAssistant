@@ -8,7 +8,9 @@ import { SettingListItem } from '../components/profile/SettingListItem';
 import { UserProfileCard } from '../components/profile/UserProfileCard';
 import { ProfileMockData } from '../data/ProfileMockData';
 import { DataLoadResult, DataSource, ProfileOverview } from '../model/ProfileModels';
+import { ContinuationSnapshot, DistributedEventType } from '../model/DistributedStudyModels';
 import { AuthSessionService } from '../service/AuthSessionService';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { ProfileService } from '../service/ProfileService';
 
 @Component
@@ -17,8 +19,26 @@ export struct ProfilePage {
   @StorageLink(AppStorageKeys.USERNAME) username: string = '智学用户';
   @State overview: ProfileOverview = ProfileMockData.getOverview();
   @State isLoading: boolean = false;
+  private readonly pageKey: string = 'ProfilePage';
 
-  aboutToAppear(): void { void this.loadData(); }
+  aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.PROFILE;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.STUDENT_PROFILE_UPDATED,
+      DistributedEventType.STUDENT_BINDING_UPDATED,
+      DistributedEventType.COURSE_ENROLLMENT_UPDATED,
+      DistributedEventType.COURSE_PROGRESS_UPDATED,
+      DistributedEventType.COURSE_FAVORITE_UPDATED,
+      DistributedEventType.STUDY_TASK_UPDATED,
+      DistributedEventType.WRONG_QUESTION_CREATED,
+      DistributedEventType.WRONG_QUESTION_UPDATED,
+      DistributedEventType.WRONG_QUESTION_DELETED
+    ], async (): Promise<void> => { await this.loadData(); }, continuation);
+    void this.loadData();
+  }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async loadData(): Promise<void> {
     if (this.isLoading) return;
@@ -26,13 +46,10 @@ export struct ProfilePage {
     try {
       const profileResult: DataLoadResult<ProfileOverview> = await ProfileService.getOverview();
       this.overview = profileResult.data;
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       console.error(`个人中心加载失败: ${JSON.stringify(error)}`);
       promptAction.showToast({ message: '个人中心加载失败' });
-      this.overview = {
-        familyCode: '', studentBindCode: '', studentName: '', studentBound: false, studentProfileId: 0,
-        learning: { courseCount: 0, weeklyTaskCount: 0, favoriteCount: 0, wrongQuestionCount: 0 }
-      };
     } finally {
       this.isLoading = false;
     }

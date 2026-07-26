@@ -2,6 +2,7 @@ from .base_tool import BusinessTool, ToolContext
 from .course_recommend_tool import CourseRecommendTool
 from .course_search_tool import CourseSearchTool
 from .learning_report_tool import LearningReportTool
+from .knowledge_search_tool import KnowledgeSearchTool
 from .order_tool import OrderTool
 from .paper_search_tool import PaperSearchTool
 from .registry import ToolRegistry
@@ -11,5 +12,6 @@ from .wrong_question_tool import WrongQuestionTool
 
 __all__ = [
     "BusinessTool", "ToolContext", "ToolRegistry", "StudentProfileTool", "CourseRecommendTool",
-    "CourseSearchTool", "PaperSearchTool", "StudyPlanTool", "LearningReportTool", "WrongQuestionTool", "OrderTool",
+    "CourseSearchTool", "PaperSearchTool", "StudyPlanTool", "LearningReportTool", "KnowledgeSearchTool",
+    "WrongQuestionTool", "OrderTool",
 ]

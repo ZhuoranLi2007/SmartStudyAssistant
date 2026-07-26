@@ -3,21 +3,35 @@ import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { Paper } from '../model/DomainModels';
+import { ContinuationSnapshot, DistributedEventType } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { MockDataService } from '../service/MockDataService';
 import { PaperService } from '../service/PaperService';
 
 @Component
 export struct PaperResourcePage {
   @Consume('appPathStack') appPathStack: NavPathStack;
+  @Prop initialSearchKeyword: string = '';
   @State searchText: string = '';
   @State allPapers: Paper[] = [];
   @State papers: Paper[] = [];
   @State usingMockData: boolean = false;
   @State isLoading: boolean = false;
+  private readonly pageKey: string = 'PaperResourcePage';
 
   aboutToAppear(): void {
+    if (!this.searchText && this.initialSearchKeyword) this.searchText = this.initialSearchKeyword;
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.PAPERS;
+    continuation.searchKeyword = this.searchText;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.PAPER_LIST_UPDATED,
+      DistributedEventType.STUDENT_PROFILE_UPDATED
+    ], async (): Promise<void> => { await this.loadPapers(); }, continuation);
     void this.loadPapers();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async loadPapers(): Promise<void> {
     if (this.isLoading) return;
@@ -30,6 +44,7 @@ export struct PaperResourcePage {
         this.allPapers = await PaperService.getPapers();
         this.usingMockData = false;
       }
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       console.warn(`试卷目录加载失败，使用演示数据: ${JSON.stringify(error)}`);
       this.allPapers = MockDataService.getPapers();
@@ -70,6 +85,10 @@ export struct PaperResourcePage {
           .onChange((value: string) => {
             this.searchText = value;
             this.refresh();
+            const continuation = new ContinuationSnapshot();
+            continuation.routeName = AppRoutes.PAPERS;
+            continuation.searchKeyword = value;
+            DistributedPageService.updateContinuation(continuation);
           })
         if (this.isLoading && this.papers.length === 0) {
           Text('正在加载试卷...').fontColor('#667085').margin({ top: 40 })

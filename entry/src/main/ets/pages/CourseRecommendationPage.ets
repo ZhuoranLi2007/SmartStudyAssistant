@@ -4,21 +4,35 @@ import { CourseVideoResolver } from '../common/CourseVideoResolver';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { Course } from '../model/DomainModels';
+import { ContinuationSnapshot, DistributedEventType } from '../model/DistributedStudyModels';
 import { CourseService } from '../service/CourseService';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { MockDataService } from '../service/MockDataService';
 
 @Component
 export struct CourseRecommendationPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
+  @Prop initialSearchKeyword: string = '';
   @State allCourses: Course[] = [];
   @State courses: Course[] = [];
   @State searchText: string = '';
   @State isLoading: boolean = false;
   @State usingMockData: boolean = false;
+  private readonly pageKey: string = 'CourseRecommendationPage';
 
   aboutToAppear(): void {
+    if (!this.searchText && this.initialSearchKeyword) this.searchText = this.initialSearchKeyword;
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.COURSES;
+    continuation.searchKeyword = this.searchText;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.COURSE_LIST_UPDATED,
+      DistributedEventType.STUDENT_PROFILE_UPDATED
+    ], async (): Promise<void> => { await this.loadCourses(); }, continuation);
     void this.loadCourses();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async loadCourses(): Promise<void> {
     if (this.isLoading) return;
@@ -31,6 +45,7 @@ export struct CourseRecommendationPage {
         this.allCourses = await CourseService.getCourses();
         this.usingMockData = false;
       }
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       console.warn(`课程目录加载失败，使用演示数据: ${JSON.stringify(error)}`);
       this.allCourses = MockDataService.getCourses();
@@ -77,6 +92,10 @@ export struct CourseRecommendationPage {
           .onChange((value: string) => {
             this.searchText = value;
             this.refresh();
+            const continuation = new ContinuationSnapshot();
+            continuation.routeName = AppRoutes.COURSES;
+            continuation.searchKeyword = value;
+            DistributedPageService.updateContinuation(continuation);
           })
         if (this.isLoading && this.courses.length === 0) {
           Text('正在加载课程...').fontColor('#667085').margin({ top: 40 })

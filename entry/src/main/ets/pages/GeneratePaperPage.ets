@@ -2,7 +2,9 @@ import { promptAction } from '@kit.ArkUI';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
+import { DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
 import { AIPaperService, GeneratePaperBody } from '../service/AIPaperService';
+import { DistributedPageService } from '../service/DistributedPageService';
 
 @Component
 export struct GeneratePaperPage {
@@ -29,6 +31,10 @@ export struct GeneratePaperPage {
         basedOnWrongQuestions: false,
       };
       const result = await AIPaperService.generate(body);
+      DistributedPageService.publish(DistributedEventType.AI_PAPER_CREATED,
+        DistributedEntityType.PAPER, result.id, '', 0, AppRoutes.GENERATE_PAPER);
+      DistributedPageService.publish(DistributedEventType.AI_PAPER_LIBRARY_UPDATED,
+        DistributedEntityType.PAPER);
       promptAction.showToast({ message: '组卷成功，已加入我的试卷' });
       const param: IdRouteParam = new IdRouteParam();
       param.id = result.id;

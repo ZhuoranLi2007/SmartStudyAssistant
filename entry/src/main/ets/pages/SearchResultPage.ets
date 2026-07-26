@@ -1,6 +1,8 @@
 import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
 import { Course, Paper } from '../model/DomainModels';
+import { ContinuationSnapshot, DistributedEventType } from '../model/DistributedStudyModels';
 import { CourseService } from '../service/CourseService';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { PaperService } from '../service/PaperService';
 
 @Component
@@ -11,11 +13,22 @@ export struct SearchResultPage {
   @State courseResults: Course[] = [];
   @State paperResults: Paper[] = [];
   @State isSearching: boolean = false;
+  private readonly pageKey: string = 'SearchResultPage';
 
   aboutToAppear(): void {
     this.searchText = this.keyword;
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.SEARCH_RESULT;
+    continuation.searchKeyword = this.keyword;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.COURSE_LIST_UPDATED,
+      DistributedEventType.PAPER_LIST_UPDATED,
+      DistributedEventType.STUDENT_PROFILE_UPDATED
+    ], async (): Promise<void> => { await this.doSearch(); }, continuation);
     void this.doSearch();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async doSearch(): Promise<void> {
     const keyword: string = this.searchText.trim();
@@ -27,10 +40,9 @@ export struct SearchResultPage {
       const papers: Paper[] = await PaperService.getPapers(`?keyword=${encoded}`);
       this.courseResults = courses || [];
       this.paperResults = papers || [];
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       console.error(`搜索失败: ${JSON.stringify(error)}`);
-      this.courseResults = [];
-      this.paperResults = [];
     } finally {
       this.isSearching = false;
     }
@@ -89,7 +101,13 @@ export struct SearchResultPage {
                 .backgroundColor('#F2F4F7')
                 .borderRadius(12)
                 .padding({ left: 16, right: 16 })
-                .onChange((value: string) => this.searchText = value)
+                .onChange((value: string) => {
+                  this.searchText = value;
+                  const continuation = new ContinuationSnapshot();
+                  continuation.routeName = AppRoutes.SEARCH_RESULT;
+                  continuation.searchKeyword = value;
+                  DistributedPageService.updateContinuation(continuation);
+                })
                 .onSubmit(() => this.doSearch())
               Button('搜索')
                 .height(44)

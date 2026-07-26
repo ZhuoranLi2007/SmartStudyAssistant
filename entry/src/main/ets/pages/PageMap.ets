@@ -1,4 +1,4 @@
-import { AppRoutes, DistributedStudyRouteParam, IdRouteParam, OnlinePracticeRouteParam, PlatformInfoRouteParam, ProfileSetupRouteParam, SearchRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
+import { AppRoutes, ContinuationRouteParam, DistributedStudyRouteParam, IdRouteParam, OnlinePracticeRouteParam, PlatformInfoRouteParam, ProfileSetupRouteParam, SearchRouteParam, WrongQuestionTrainingRouteParam } from '../common/AppRoutes';
 import { AiAssistantPage } from './AiAssistantPage';
 import { CourseDetailPage } from './CourseDetailPage';
 import { CourseRecommendationPage } from './CourseRecommendationPage';
@@ -57,11 +57,26 @@ function wrongQuestionTaskIdFromParam(param: Object): number {
 
 function keywordFromSearchParam(param: Object): string {
   if (param instanceof SearchRouteParam) return param.keyword;
+  if (param instanceof ContinuationRouteParam) return param.searchKeyword;
   return '';
+}
+
+function entityIdFromParam(param: Object): number {
+  if (param instanceof IdRouteParam) return param.id;
+  if (param instanceof ContinuationRouteParam) return param.entityId;
+  return 0;
 }
 
 function distributedStudyParam(param: Object): DistributedStudyRouteParam {
   if (param instanceof DistributedStudyRouteParam) return param;
+  if (param instanceof ContinuationRouteParam) {
+    const studyParam = new DistributedStudyRouteParam();
+    studyParam.taskId = param.entityId;
+    studyParam.selectedDate = param.selectedDate;
+    studyParam.filter = param.filter || 'WEEK';
+    studyParam.updatedAt = param.updatedAt;
+    return studyParam;
+  }
   return new DistributedStudyRouteParam();
 }
 
@@ -76,15 +91,19 @@ export function PageMap(name: string, param: Object) {
   } else if (name === AppRoutes.STUDENT_PROFILE) {
     StudentProfilePage({ requireSetup: requireSetupFromParam(param) })
   } else if (name === AppRoutes.AI_ASSISTANT) {
-    AiAssistantPage()
+    AiAssistantPage({ initialSessionId: param instanceof ContinuationRouteParam ? param.entityKey : '' })
   } else if (name === AppRoutes.COURSES) {
-    CourseRecommendationPage()
+    CourseRecommendationPage({
+      initialSearchKeyword: param instanceof ContinuationRouteParam ? param.searchKeyword : ''
+    })
   } else if (name === AppRoutes.COURSE_DETAIL) {
-    CourseDetailPage({ courseId: (param as IdRouteParam).id })
+    CourseDetailPage({ courseId: entityIdFromParam(param) })
   } else if (name === AppRoutes.PAPERS) {
-    PaperResourcePage()
+    PaperResourcePage({
+      initialSearchKeyword: param instanceof ContinuationRouteParam ? param.searchKeyword : ''
+    })
   } else if (name === AppRoutes.PAPER_DETAIL) {
-    PaperDetailPage({ paperId: (param as IdRouteParam).id })
+    PaperDetailPage({ paperId: entityIdFromParam(param) })
   } else if (name === AppRoutes.STUDY_PLAN) {
     StudyPlanPage({ distributedParam: distributedStudyParam(param) })
   } else if (name === AppRoutes.PROFILE) {
@@ -92,7 +111,9 @@ export function PageMap(name: string, param: Object) {
   } else if (name === AppRoutes.MY_COURSES) {
     MyCoursesPage()
   } else if (name === AppRoutes.MY_FAVORITES) {
-    MyFavoritesPage()
+    MyFavoritesPage({
+      initialTabIndex: param instanceof ContinuationRouteParam ? param.tabIndex : 0
+    })
   } else if (name === AppRoutes.CUSTOMER_SERVICE) {
     CustomerServicePage()
   } else if (name === AppRoutes.SETTINGS) {
@@ -110,10 +131,14 @@ export function PageMap(name: string, param: Object) {
   } else if (name === AppRoutes.ONLINE_PRACTICE) {
     OnlinePracticePage({ paperId: paperIdFromPracticeParam(param), taskId: taskIdFromPracticeParam(param) })
   } else if (name === AppRoutes.WRONG_QUESTION_TRAINING) {
-    WrongQuestionTrainingPage({
-      wrongQuestionId: wrongQuestionIdFromParam(param),
-      taskId: wrongQuestionTaskIdFromParam(param)
-    })
+    if (param instanceof ContinuationRouteParam) {
+      WrongQuestionTrainingPage({ wrongQuestionId: param.entityId, taskId: param.parentEntityId })
+    } else {
+      WrongQuestionTrainingPage({
+        wrongQuestionId: wrongQuestionIdFromParam(param),
+        taskId: wrongQuestionTaskIdFromParam(param)
+      })
+    }
   } else if (name === AppRoutes.SEARCH_RESULT) {
     SearchResultPage({ keyword: keywordFromSearchParam(param) })
   } else if (name === AppRoutes.GENERATE_PAPER) {

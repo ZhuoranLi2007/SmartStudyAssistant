@@ -1,4 +1,6 @@
 import json
+import logging
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,11 +17,13 @@ from server.ai.rag import RAGService
 from server.config import get_settings
 from server.database import get_db
 from server.models import StudentProfile, User
-from server.schemas import AIChatRequest
+from server.schemas import AIChatRequest, AISessionCreate
+from server.services.access_service import ensure_student_access
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger("smartstudy.ai.api")
 
 
 def _sse(event: str, data: dict) -> str:
@@ -105,10 +109,21 @@ async def ai_health():
 async def ai_chat(payload: AIChatRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     if payload.student_profile_id <= 0 or await db.get(StudentProfile, payload.student_profile_id) is None:
         return ok(await _without_student_result(payload, db))
-    result = await AIOrchestrator(db, user).handle(
-        payload.student_profile_id, payload.message, payload.session_id,
-        payload.client_message_id, payload.user_id,
-    )
+    try:
+        result = await AIOrchestrator(db, user).handle(
+            payload.student_profile_id, payload.message, payload.session_id,
+            payload.client_message_id, payload.user_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "AI chat failed client_message_id=%s student_profile_id=%s error_type=%s",
+            payload.client_message_id,
+            payload.student_profile_id,
+            exc.__class__.__name__,
+        )
+        raise HTTPException(status_code=503, detail="智能服务处理失败，请稍后重试") from exc
     return ok(result)
 
 
@@ -137,7 +152,13 @@ async def ai_chat_stream(payload: AIChatRequest, db: AsyncSession = Depends(get_
                 yield _sse(event, data)
         except HTTPException as exc:
             yield _sse("error", {"code": exc.status_code, "message": str(exc.detail)})
-        except Exception:
+        except Exception as exc:
+            logger.exception(
+                "AI stream failed client_message_id=%s student_profile_id=%s error_type=%s",
+                payload.client_message_id,
+                payload.student_profile_id,
+                exc.__class__.__name__,
+            )
             yield _sse("error", {"code": "AI_STREAM_FAILED", "message": "AI 流式响应暂时不可用"})
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -148,11 +169,46 @@ async def session_messages(session_id: str, db: AsyncSession = Depends(get_db), 
     return ok(await ConversationMemoryService(db, user).history(session_id))
 
 
+@router.get("/sessions")
+async def list_sessions(
+    student_profile_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if student_profile_id is not None:
+        await ensure_student_access(db, user, student_profile_id)
+    return ok(await ConversationMemoryService(db, user).list_sessions(student_profile_id))
+
+
+@router.post("/sessions")
+async def create_session(
+    payload: AISessionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await ensure_student_access(db, user, payload.student_profile_id)
+    result = await ConversationMemoryService(db, user).create_session(payload.student_profile_id)
+    await db.commit()
+    return ok(result, "会话已创建")
+
+
+@router.post("/sessions/{session_id}/clear")
+async def clear_session_messages(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    memory = ConversationMemoryService(db, user)
+    await memory.clear(session_id)
+    await db.commit()
+    return ok({"sessionId": session_id, "updatedAt": datetime.now(timezone.utc).isoformat()}, "会话已清空")
+
+
 @router.delete("/sessions/{session_id}")
 async def clear_session(session_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    await ConversationMemoryService(db, user).clear(session_id)
+    await ConversationMemoryService(db, user).delete_session(session_id)
     await db.commit()
-    return ok(None, "会话已清空")
+    return ok({"sessionId": session_id, "deletedAt": datetime.now(timezone.utc).isoformat()}, "会话已删除")
 
 
 @router.post("/rag/rebuild")
@@ -160,8 +216,9 @@ async def rebuild_rag(db: AsyncSession = Depends(get_db), user: User = Depends(g
     settings = get_settings()
     if settings.environment.lower() not in {"development", "dev", "test"}:
         raise HTTPException(status_code=403, detail="RAG 重建仅在开发环境开放")
-    if user.role != "parent":
-        raise HTTPException(status_code=403, detail="只有家长账号可以重建知识库")
+    # 当前注册流程统一使用 user 角色并创建家庭学习空间；开发环境允许该空间所有者维护 RAG。
+    if user.role not in {"user", "parent"}:
+        raise HTTPException(status_code=403, detail="只有家庭学习空间账号可以重建知识库")
     result = await RAGService(db).rebuild()
     await db.commit()
     return ok(result, "知识库已重建")

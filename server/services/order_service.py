@@ -109,6 +109,7 @@ async def enroll_course(db: AsyncSession, user: User, student_profile_id: int, c
             "courseId": course.id,
             "enrollmentId": enrollment.id,
             "name": course.name,
+            "updatedAt": enrollment.updated_at.isoformat(),
         }
     enrollment = CourseEnrollment(
         student_profile_id=student_profile_id,
@@ -125,4 +126,5 @@ async def enroll_course(db: AsyncSession, user: User, student_profile_id: int, c
         "courseId": course.id,
         "enrollmentId": enrollment.id,
         "name": course.name,
+        "updatedAt": enrollment.updated_at.isoformat(),
     }

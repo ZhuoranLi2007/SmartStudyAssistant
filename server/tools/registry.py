@@ -27,6 +27,16 @@ class ToolRegistry:
     def definitions(self) -> list[dict]:
         return [{"name": item.name, "description": item.description, "inputSchema": item.input_schema} for item in self.tools.values()]
 
+    def provider_definitions(self, allowed_names: set[str] | None = None) -> list[dict]:
+        return [{
+            "type": "function",
+            "function": {
+                "name": item.name,
+                "description": item.description,
+                "parameters": item.input_schema,
+            },
+        } for item in self.tools.values() if allowed_names is None or item.name in allowed_names]
+
     async def execute(self, name: str, arguments: dict) -> dict:
         tool = self.tools.get(name)
         if tool is None and name not in self.handlers:

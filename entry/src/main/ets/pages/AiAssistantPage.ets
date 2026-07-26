@@ -12,13 +12,21 @@ import {
   AiChatHistory,
   AiChatResult,
   AiHistoryMessage,
+  AiSessionSummary,
   AiSource,
   AiStreamCallbacks,
   ChatMessage,
   ChatRole,
   QuickQuestion
 } from '../model/AiModels';
+import {
+  ContinuationSnapshot,
+  DistributedEntityType,
+  DistributedEventType
+} from '../model/DistributedStudyModels';
 import { AiService } from '../service/AiService';
+import { DistributedPageService } from '../service/DistributedPageService';
+import { PageRefreshResult } from '../service/PageRefreshCoordinator';
 import { ChatViewModel } from '../viewModel/ChatViewModel';
 import { StudentProfile } from '../model/DomainModels';
 import { StudentService } from '../service/StudentService';
@@ -26,6 +34,7 @@ import { StudentService } from '../service/StudentService';
 @Component
 export struct AiAssistantPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
+  @Prop initialSessionId: string = '';
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @State inputText: string = '';
   @State messages: ChatMessage[] = ChatViewModel.welcomeMessages();
@@ -36,11 +45,28 @@ export struct AiAssistantPage {
   @State currentIntent: string = '';
   @State linkedStudentText: string = '';
   @State speakingMessageId: string = '';
+  @State sessions: AiSessionSummary[] = [];
+  @State showSessionList: boolean = false;
   private messageScroller: Scroller = new Scroller();
   private asrTimeoutId: number = -1;
   private asrHasResult: boolean = false;
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.AI_ASSISTANT;
+    continuation.entityKey = this.initialSessionId;
+    DistributedPageService.activate('AiAssistantPage', [
+      DistributedEventType.AI_CONVERSATION_CREATED,
+      DistributedEventType.AI_CONVERSATION_UPDATED,
+      DistributedEventType.AI_CONVERSATION_DELETED,
+      DistributedEventType.AI_CONVERSATION_CLEARED,
+      DistributedEventType.AI_CONVERSATION_LIST_UPDATED
+    ], async (): Promise<PageRefreshResult> => {
+      if (this.isLoading) return PageRefreshResult.BUSY;
+      await this.loadSessions();
+      if (this.sessionId) await this.mergeCurrentHistory();
+      return PageRefreshResult.SUCCESS;
+    }, continuation);
     void this.restoreHistory();
     void this.loadLinkedStudent();
   }
@@ -141,24 +167,61 @@ export struct AiAssistantPage {
   private async restoreHistory(): Promise<void> {
     this.isRestoring = true;
     try {
-      const history: AiChatHistory | null = await ChatViewModel.restore(this.context());
-      if (history && history.messages.length > 0) {
-        const restored: ChatMessage[] = [];
-        for (let index: number = 0; index < history.messages.length; index++) {
-          const item: AiHistoryMessage = history.messages[index];
-          const message: ChatMessage = ChatViewModel.createMessage(this.roleFromText(item.role), item.content);
-          message.id = `history_${item.id}`;
-          message.createTime = item.createTime;
-          message.intent = item.intent;
-          restored.push(message);
-        }
-        this.messages = restored;
+      const history: AiChatHistory | null = await ChatViewModel.restore(this.context(), this.initialSessionId);
+      if (history) {
         this.sessionId = history.sessionId;
-        this.scrollToBottom();
+        if (history.messages.length > 0) this.mergeHistory(history, true);
+        this.updateContinuation();
       }
+      await this.loadSessions();
     } finally {
       this.isRestoring = false;
     }
+  }
+
+  private async loadSessions(): Promise<void> {
+    if (this.studentProfileId <= 0) return;
+    try {
+      this.sessions = await AiService.getSessions(this.studentProfileId);
+    } catch (error) {
+      console.warn(`AI会话列表加载失败: ${JSON.stringify(error)}`);
+    }
+  }
+
+  private mergeHistory(history: AiChatHistory, replaceWelcome: boolean = false): void {
+    const next: ChatMessage[] = replaceWelcome ? [] : this.messages.slice();
+    for (let historyIndex: number = 0; historyIndex < history.messages.length; historyIndex++) {
+      const item: AiHistoryMessage = history.messages[historyIndex];
+      const historyId: string = `history_${item.id}`;
+      let foundIndex: number = -1;
+      for (let messageIndex: number = 0; messageIndex < next.length; messageIndex++) {
+        const current: ChatMessage = next[messageIndex];
+        if (current.id === historyId || (item.clientMessageId &&
+          current.clientMessageId === item.clientMessageId && current.role === this.roleFromText(item.role))) {
+          foundIndex = messageIndex;
+          break;
+        }
+      }
+      if (foundIndex >= 0 && next[foundIndex].isStreaming) continue;
+      const message: ChatMessage = ChatViewModel.createMessage(
+        this.roleFromText(item.role), item.content, item.clientMessageId || ''
+      );
+      message.id = historyId;
+      message.createTime = item.createTime;
+      message.intent = item.intent;
+      message.cards = item.cards || [];
+      message.sources = item.sources || [];
+      message.fallbackUsed = item.fallbackUsed || false;
+      if (foundIndex >= 0) next[foundIndex] = message; else next.push(message);
+    }
+    this.messages = next.length > 0 ? next : ChatViewModel.welcomeMessages();
+    this.scrollToBottom();
+  }
+
+  private async mergeCurrentHistory(): Promise<void> {
+    if (!this.sessionId) return;
+    const history: AiChatHistory = await AiService.getHistory(this.sessionId);
+    this.mergeHistory(history);
   }
 
   private async sendQuestion(questionText: string, retryMessage?: ChatMessage): Promise<void> {
@@ -189,9 +252,20 @@ export struct AiAssistantPage {
       onDelta: (content: string): void => this.appendDelta(assistantId, content),
       onIntent: (intent: string): void => { this.currentIntent = intent; },
       onMeta: (newSessionId: string, _requestId: string): void => {
-        if (newSessionId) this.sessionId = newSessionId;
+        if (newSessionId) {
+          this.sessionId = newSessionId;
+          this.updateContinuation();
+        }
       },
-      onSource: (source: AiSource): void => this.appendSource(assistantId, source)
+      onSource: (source: AiSource): void => this.appendSource(assistantId, source),
+      onMessageSaved: (newSessionId: string, _messageId: number, _clientId: string): void => {
+        if (newSessionId) this.sessionId = newSessionId;
+        DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_UPDATED,
+          DistributedEntityType.AI_CONVERSATION, 0, newSessionId);
+        DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_LIST_UPDATED,
+          DistributedEntityType.AI_CONVERSATION);
+        this.updateContinuation();
+      }
     };
     try {
       const result: AiChatResult = await ChatViewModel.send(
@@ -210,16 +284,21 @@ export struct AiAssistantPage {
       completed.errorMessage = completed.content ? '' : '智能服务未返回正文，可点击重试。';
       completed.retryQuestion = question;
       this.replaceMessage(completed);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_UPDATED,
+        DistributedEntityType.AI_CONVERSATION, 0, result.sessionId);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_LIST_UPDATED,
+        DistributedEntityType.AI_CONVERSATION);
+      this.updateContinuation();
     } catch (error) {
       let failed: ChatMessage = assistantMessage;
       for (let index: number = 0; index < this.messages.length; index++) {
         if (this.messages[index].id === assistantId) failed = this.copyMessage(this.messages[index]);
       }
       failed.isStreaming = false;
-      failed.errorMessage = failed.content ? '回复中断，可点击重试。' : '连接智能服务失败，可点击重试。';
+      failed.errorMessage = this.aiFailureMessage(error, !!failed.content);
       failed.retryQuestion = question;
       this.replaceMessage(failed);
-      promptAction.showToast({ message: '智能服务暂时不可用，请检查后端网络' });
+      this.showCurrentToast(failed.errorMessage);
       console.error(`AI 对话失败: ${JSON.stringify(error)}`);
     } finally {
       this.isLoading = false;
@@ -230,15 +309,36 @@ export struct AiAssistantPage {
         if (!stopped.content && !stopped.errorMessage) stopped.errorMessage = '回复已结束但没有收到内容，可点击重试。';
         this.replaceMessage(stopped);
       }
+      await this.loadSessions();
+      if (this.sessionId) {
+        try { await this.mergeCurrentHistory(); } catch (error) {
+          console.warn(`AI请求结束后合并历史失败: ${JSON.stringify(error)}`);
+        }
+      }
     }
+  }
+
+  private aiFailureMessage(error: Object, hasPartialContent: boolean): string {
+    if (hasPartialContent) return '回复中断，可点击重试。';
+    const detail: string = error instanceof Error ? error.message : JSON.stringify(error);
+    if (detail.indexOf('SERVICE:') >= 0 || detail.indexOf('HTTP 5') >= 0) {
+      return '智能服务处理失败，可点击重试。';
+    }
+    if (detail.indexOf('2300028') >= 0 || detail.indexOf('Network') >= 0 || detail.indexOf('connect') >= 0) {
+      return '网络连接失败，请检查网络后重试。';
+    }
+    return '智能服务暂时不可用，可点击重试。';
   }
 
   private async confirmClear(): Promise<void> {
     try {
       await ChatViewModel.clear(this.context(), this.sessionId);
-      this.sessionId = '';
       this.currentIntent = '';
       this.messages = ChatViewModel.welcomeMessages();
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_CLEARED,
+        DistributedEntityType.AI_CONVERSATION, 0, this.sessionId);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_LIST_UPDATED,
+        DistributedEntityType.AI_CONVERSATION);
       this.scrollToBottom();
     } catch (error) {
       promptAction.showToast({ message: '清空会话失败，请稍后重试' });
@@ -258,13 +358,59 @@ export struct AiAssistantPage {
   private async newConversation(): Promise<void> {
     if (this.isLoading) return;
     try {
-      await ChatViewModel.startNewConversation(this.context());
-      this.sessionId = '';
+      const session: AiSessionSummary = await ChatViewModel.createConversation(this.context(), this.studentProfileId);
+      this.sessionId = session.sessionId;
       this.currentIntent = '';
       this.messages = ChatViewModel.welcomeMessages();
+      this.sessions = [session].concat(this.sessions);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_CREATED,
+        DistributedEntityType.AI_CONVERSATION, 0, session.sessionId);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_LIST_UPDATED,
+        DistributedEntityType.AI_CONVERSATION);
+      this.updateContinuation();
       this.scrollToBottom();
     } catch (error) {
       promptAction.showToast({ message: '新会话创建失败，请稍后重试' });
+    }
+  }
+
+  private updateContinuation(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.AI_ASSISTANT;
+    continuation.entityKey = this.sessionId;
+    DistributedPageService.updateContinuation(continuation);
+  }
+
+  private async openSession(sessionId: string): Promise<void> {
+    if (this.isLoading) return;
+    this.isRestoring = true;
+    try {
+      const history: AiChatHistory = await ChatViewModel.selectConversation(this.context(), sessionId);
+      this.sessionId = sessionId;
+      this.mergeHistory(history, true);
+      this.showSessionList = false;
+      this.updateContinuation();
+    } finally {
+      this.isRestoring = false;
+    }
+  }
+
+  private async deleteSession(sessionId: string): Promise<void> {
+    if (this.isLoading) return;
+    try {
+      await AiService.deleteConversation(sessionId);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_DELETED,
+        DistributedEntityType.AI_CONVERSATION, 0, sessionId);
+      DistributedPageService.publish(DistributedEventType.AI_CONVERSATION_LIST_UPDATED,
+        DistributedEntityType.AI_CONVERSATION);
+      if (this.sessionId === sessionId) {
+        await ChatViewModel.startNewConversation(this.context());
+        this.sessionId = '';
+        this.messages = ChatViewModel.welcomeMessages();
+      }
+      await this.loadSessions();
+    } catch (error) {
+      this.showCurrentToast('删除会话失败，请稍后重试');
     }
   }
 
@@ -430,6 +576,7 @@ export struct AiAssistantPage {
   }
 
   aboutToDisappear(): void {
+    DistributedPageService.deactivate('AiAssistantPage');
     this.clearAsrTimeout();
     speechAiService.cancelBackendRecording();
     speechAiService.cancelListening();
@@ -456,52 +603,107 @@ export struct AiAssistantPage {
                 .onClick(() => this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, null))
             }
           }.layoutWeight(1)
+          Text('历史').fontSize(12).fontColor('#5B65E8').onClick(() => {
+            this.showSessionList = !this.showSessionList;
+            if (this.showSessionList) void this.loadSessions();
+          })
           Text('＋ 新会话').fontSize(12).fontColor('#2F6BFF').onClick(() => void this.newConversation())
           Text('清空').fontSize(12).fontColor('#F04438').onClick(() => this.showClearDialog())
         }.padding({ left: 16, right: 16, top: 12, bottom: 10 }).width('100%')
 
-        List({ space: 8 }) {
-          ForEach(ChatViewModel.QUICK_QUESTIONS, (item: QuickQuestion) => {
-            ListItem() {
-              SuggestionChip({ item: item, disabled: this.isLoading || this.isRestoring,
-                onSelect: (question: string): void => { void this.sendQuestion(question); } })
+        if (this.showSessionList) {
+          Column({ space: 8 }) {
+            Row() {
+              Text('历史会话').fontSize(15).fontWeight(FontWeight.Bold).layoutWeight(1)
+              Text(`${this.sessions.length} 个`).fontSize(11).fontColor('#98A2B3')
+            }.width('100%')
+            if (this.sessions.length === 0) {
+              Text('暂无历史会话').fontSize(12).fontColor('#98A2B3').width('100%')
+            } else {
+              List({ space: 6 }) {
+                ForEach(this.sessions, (session: AiSessionSummary) => {
+                  ListItem() {
+                    Row({ space: 8 }) {
+                      Column({ space: 3 }) {
+                        Text(session.title || '学习咨询').fontSize(13).fontWeight(FontWeight.Medium).maxLines(1)
+                        Text(`${session.messageCount} 条消息`).fontSize(10).fontColor('#98A2B3')
+                      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                        .onClick(() => void this.openSession(session.sessionId))
+                      Text('删除').fontSize(11).fontColor('#F04438')
+                        .onClick(() => void this.deleteSession(session.sessionId))
+                    }.width('100%').padding(10).backgroundColor(
+                      session.sessionId === this.sessionId ? '#EEF4FF' : '#F8FAFC'
+                    ).borderRadius(10)
+                  }
+                }, (session: AiSessionSummary) => session.sessionId)
+              }.height(Math.min(180, this.sessions.length * 56)).width('100%')
             }
-          }, (item: QuickQuestion) => item.label)
+          }.margin({ left: 16, right: 16, bottom: 8 }).padding(12)
+            .backgroundColor(Color.White).borderRadius(14)
         }
-        .listDirection(Axis.Horizontal)
-        .scrollBar(BarState.Off)
-        .edgeEffect(EdgeEffect.Spring)
-        .height(48)
-        .padding({ left: 14, right: 14 })
-        .width('100%')
-
-        Row({ space: 7 }) {
-          Text('✎').fontSize(15).fontColor('#4777F5')
-          Text('AI 组卷').fontSize(12).fontColor('#344054').fontWeight(FontWeight.Medium)
-        }
-        .height(38)
-        .padding({ left: 12, right: 12 })
-        .backgroundColor(Color.White)
-        .borderRadius(18)
-        .border({ width: 1, color: '#E3E9F6' })
-        .margin({ left: 14, right: 14, bottom: 8 })
-        .opacity(this.isLoading || this.isRestoring ? 0.55 : 1)
-        .onClick(() => {
-          if (!this.isLoading && !this.isRestoring) {
-            this.appPathStack.pushPathByName(AppRoutes.GENERATE_PAPER, null);
-          }
-        })
 
         List({ space: 14, scroller: this.messageScroller }) {
-          ForEach(this.messages, (message: ChatMessage) => {
+          ForEach(this.messages, (message: ChatMessage, index: number) => {
             ListItem() {
-              ChatMessageBubble({
-                message: message,
-                speakingMessageId: this.speakingMessageId,
-                onRead: (content: string, messageId: string): void => { void this.readMessage(content, messageId); },
-                onCopy: (content: string): void => { void this.copyAssistantContent(content); },
-                onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
-              })
+              Column() {
+                ChatMessageBubble({
+                  message: message,
+                  speakingMessageId: this.speakingMessageId,
+                  onRead: (content: string, messageId: string): void => { void this.readMessage(content, messageId); },
+                  onCopy: (content: string): void => { void this.copyAssistantContent(content); },
+                  onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
+                })
+
+                if (index === 0) {
+                  Column({ space: 8 }) {
+                    ForEach(ChatViewModel.QUICK_QUESTIONS, (item: QuickQuestion) => {
+                      Row() {
+                        SuggestionChip({
+                          item: item,
+                          disabled: this.isLoading || this.isRestoring,
+                          onSelect: (question: string): void => {
+                            void this.sendQuestion(question);
+                          }
+                        })
+                      }
+                      .width('100%')
+                    }, (item: QuickQuestion) => item.label)
+
+                    Row() {
+                      Row({ space: 7 }) {
+                        Text('✎')
+                          .fontSize(15)
+                          .fontColor('#4777F5')
+
+                        Text('AI 组卷')
+                          .fontSize(13)
+                          .fontColor('#344054')
+                          .fontWeight(FontWeight.Medium)
+                      }
+                      .height(38)
+                      .padding({ left: 12, right: 12 })
+                      .alignItems(VerticalAlign.Center)
+                      .backgroundColor(Color.White)
+                      .borderRadius(18)
+                      .border({ width: 1, color: '#E3E9F6' })
+                      .opacity(this.isLoading || this.isRestoring ? 0.55 : 1)
+                      .onClick(() => {
+                        if (!this.isLoading && !this.isRestoring) {
+                          this.appPathStack.pushPathByName(
+                            AppRoutes.GENERATE_PAPER,
+                            null
+                          );
+                        }
+                      })
+                    }
+                    .width('100%')
+                    .justifyContent(FlexAlign.Start)
+                  }
+                  .width('100%')
+                  .margin({ top: 10 })
+                }
+              }
+              .width('100%')
             }
           }, (message: ChatMessage) => `${message.id}-${message.revision}`)
         }

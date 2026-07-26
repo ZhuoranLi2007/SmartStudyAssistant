@@ -7,7 +7,17 @@ from server.tools.base_tool import BusinessTool, ToolContext
 class CourseSearchTool(BusinessTool):
     name = "course_search_tool"
     description = "按年级、学科、等级、知识点和价格检索真实课程"
-    input_schema = {"type": "object", "properties": {"grade": {}, "subject": {}, "courseLevel": {}, "knowledgePoint": {}, "maxPrice": {}}}
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "grade": {"type": "string"},
+            "subject": {"type": "string", "enum": ["语文", "数学", "英语"]},
+            "courseLevel": {"type": "string", "enum": ["基础巩固型", "中等提升型", "拔高拓展型"]},
+            "knowledgePoint": {"type": "string"},
+            "maxPrice": {"type": "number", "minimum": 0},
+        },
+        "additionalProperties": False,
+    }
 
     async def execute(self, context: ToolContext, arguments: dict) -> dict:
         statement = select(Course).where(Course.is_active.is_(True))

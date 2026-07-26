@@ -11,7 +11,16 @@ _DIFFICULTY_TO_LEVEL = {"基础": "基础巩固型", "中等": "中等提升型"
 class PaperSearchTool(BusinessTool):
     name = "paper_search_tool"
     description = "按学生档案的年级、学科、成绩层次和薄弱知识点检索真实试卷"
-    input_schema = {"type": "object", "properties": {"grade": {}, "subject": {}, "difficulty": {}, "knowledgePoint": {}}}
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "grade": {"type": "string"},
+            "subject": {"type": "string", "enum": ["语文", "数学", "英语"]},
+            "difficulty": {"type": "string", "enum": ["基础", "中等", "较难", "基础巩固型", "中等提升型", "拔高拓展型"]},
+            "knowledgePoint": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
 
     async def execute(self, context: ToolContext, arguments: dict) -> dict:
         subject = arguments.get("subject") or "数学"

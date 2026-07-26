@@ -1,10 +1,13 @@
 import { promptAction } from '@kit.ArkUI';
 import { AppStorageKeys } from '../common/AppStorageKeys';
+import { AppRoutes } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { TaskStatus } from '../model/DomainModels';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
 import { WrongQuestionTraining, WrongQuestionTrainingResult } from '../model/StudyPlanModels';
 import { StudyPlanService } from '../service/StudyPlanService';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { WrongQuestionService } from '../service/WrongQuestionService';
 
 @Component
@@ -18,15 +21,30 @@ export struct WrongQuestionTrainingPage {
   @State result: WrongQuestionTrainingResult | null = null;
   @State loading: boolean = true;
   @State submitting: boolean = false;
+  private readonly pageKey: string = 'WrongQuestionTrainingPage';
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.WRONG_QUESTION_TRAINING;
+    continuation.entityId = this.wrongQuestionId;
+    continuation.parentEntityId = this.taskId;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.WRONG_QUESTION_UPDATED,
+      DistributedEventType.WRONG_QUESTION_DELETED,
+      DistributedEventType.WRONG_QUESTION_RETEST_UPDATED
+    ], async (): Promise<void> => {
+      if (!this.submitting && this.selectedIndex < 0) await this.loadTraining();
+    }, continuation);
     void this.loadTraining();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async loadTraining(): Promise<void> {
     this.loading = true;
     try {
       this.training = await WrongQuestionService.getTraining(this.studentProfileId, this.wrongQuestionId);
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       this.training = null;
       console.error(`错题复测加载失败: ${JSON.stringify(error)}`);
@@ -49,6 +67,19 @@ export struct WrongQuestionTrainingPage {
       this.result = value;
       if (value.correct && this.taskId > 0 && !this.training.live) {
         await StudyPlanService.updateStatus(this.taskId, TaskStatus.COMPLETED);
+      }
+      DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_RETEST_UPDATED,
+        DistributedEntityType.WRONG_QUESTION, this.wrongQuestionId, '', this.studentProfileId,
+        AppRoutes.WRONG_QUESTION_TRAINING);
+      DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_UPDATED,
+        DistributedEntityType.WRONG_QUESTION, this.wrongQuestionId, '', this.studentProfileId);
+      DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+        DistributedEntityType.STUDY_REPORT, this.studentProfileId);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, this.studentProfileId);
+      if (value.correct && this.taskId > 0 && !this.training.live) {
+        DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
+          DistributedEntityType.STUDY_TASK, this.taskId, '', this.studentProfileId);
       }
       promptAction.showToast({ message: value.correct ? '回答正确，已标记为掌握' : '回答错误，请结合解析重新练习' });
     } catch (error) {

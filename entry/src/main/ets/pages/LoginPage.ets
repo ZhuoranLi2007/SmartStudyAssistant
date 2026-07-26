@@ -1,11 +1,11 @@
 import { common } from '@kit.AbilityKit';
-import { AppRoutes, DistributedStudyRouteParam, ProfileSetupRouteParam } from '../common/AppRoutes';
+import { AppRoutes, ContinuationRouteParam, ProfileSetupRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { AppConfig } from '../common/AppConfig';
-import { DistributedStudySnapshot } from '../model/DistributedStudyModels';
+import { ContinuationSnapshot } from '../model/DistributedStudyModels';
 import { LoginResult } from '../model/DomainModels';
 import { AuthService } from '../service/AuthService';
-import { DistributedStudyService } from '../service/DistributedStudyService';
+import { DistributedSyncService } from '../service/DistributedStudyService';
 import { SessionSnapshot, SessionStorageService } from '../service/SessionStorageService';
 
 @Component
@@ -53,22 +53,26 @@ export struct LoginPage {
     snapshot.profileCompleted = profileCompleted;
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SessionStorageService.save(context, snapshot);
+    await DistributedSyncService.restore(context, userId);
     this.appPathStack.clear();
     if (!profileCompleted) {
       const param: ProfileSetupRouteParam = new ProfileSetupRouteParam();
       param.requireSetup = true;
       this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, param);
     } else {
-      const distributedSnapshot: DistributedStudySnapshot | undefined =
-        DistributedStudyService.consumePendingSnapshot(userId);
-      if (distributedSnapshot !== undefined && distributedSnapshot.routeName === AppRoutes.STUDY_PLAN) {
-        const param = new DistributedStudyRouteParam();
-        param.taskId = distributedSnapshot.taskId;
-        param.taskStatus = distributedSnapshot.taskStatus;
-        param.selectedDate = distributedSnapshot.selectedDate;
-        param.filter = distributedSnapshot.filter;
-        param.updatedAt = distributedSnapshot.updatedAt;
-        this.appPathStack.pushPathByName(AppRoutes.STUDY_PLAN, param);
+      const continuation: ContinuationSnapshot | undefined =
+        DistributedSyncService.consumePendingContinuation(userId);
+      if (continuation !== undefined) {
+        const param = new ContinuationRouteParam();
+        param.entityId = continuation.entityId;
+        param.entityKey = continuation.entityKey;
+        param.parentEntityId = continuation.parentEntityId;
+        param.selectedDate = continuation.selectedDate;
+        param.filter = continuation.filter;
+        param.tabIndex = continuation.tabIndex;
+        param.searchKeyword = continuation.searchKeyword;
+        param.updatedAt = continuation.updatedAt;
+        this.appPathStack.pushPathByName(continuation.routeName, param);
       } else {
         this.appPathStack.pushPathByName(AppRoutes.HOME, null);
       }
@@ -112,7 +116,7 @@ export struct LoginPage {
     NavDestination() {
       Scroll() {
         Column({ space: 18 }) {
-          Image($r('app.media.realImageGen_education_0'))
+          Image($r('app.media.icon'))
             .width(118)
             .height(118)
             .borderRadius(28)

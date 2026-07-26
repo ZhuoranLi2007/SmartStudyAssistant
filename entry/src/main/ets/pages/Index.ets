@@ -1,10 +1,11 @@
 import { common } from '@kit.AbilityKit';
-import { AppRoutes, DistributedStudyRouteParam, ProfileSetupRouteParam } from '../common/AppRoutes';
+import { AppRoutes, ContinuationRouteParam, ProfileSetupRouteParam } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
-import { DistributedStudySnapshot } from '../model/DistributedStudyModels';
-import { DistributedStudyService } from '../service/DistributedStudyService';
-import { PageMap } from './PageMap';
+import { ContinuationSnapshot } from '../model/DistributedStudyModels';
+import { DistributedSyncService } from '../service/DistributedStudyService';
+import { PageRefreshCoordinator } from '../service/PageRefreshCoordinator';
 import { SessionSnapshot, SessionStorageService } from '../service/SessionStorageService';
+import { PageMap } from './PageMap';
 
 @Entry
 @Component
@@ -12,22 +13,34 @@ struct Index {
   @Provide('appPathStack') appPathStack: NavPathStack = new NavPathStack();
 
   aboutToAppear(): void {
-    AppStorage.setOrCreate<string>(AppStorageKeys.AUTH_TOKEN, '');
-    AppStorage.setOrCreate<number>(AppStorageKeys.USER_ID, 0);
-    AppStorage.setOrCreate<string>(AppStorageKeys.USERNAME, '');
-    AppStorage.setOrCreate<string>(AppStorageKeys.USER_ROLE, 'user');
-    AppStorage.setOrCreate<number>(AppStorageKeys.STUDENT_PROFILE_ID, 0);
-    AppStorage.setOrCreate<boolean>(AppStorageKeys.PROFILE_COMPLETED, false);
-    AppStorage.setOrCreate<boolean>(AppStorageKeys.DISTRIBUTED_SYNC_ENABLED, false);
-    AppStorage.setOrCreate<string>(AppStorageKeys.DISTRIBUTED_SYNC_STATUS, 'DISABLED');
-    AppStorage.setOrCreate<string>(AppStorageKeys.DISTRIBUTED_PENDING_SESSION_ID, '');
-    AppStorage.setOrCreate<string>(AppStorageKeys.DISTRIBUTED_PENDING_ROUTE, '');
-    AppStorage.setOrCreate<number>(AppStorageKeys.DISTRIBUTED_PENDING_TASK_ID, 0);
-    AppStorage.setOrCreate<string>(AppStorageKeys.DISTRIBUTED_PENDING_TASK_STATUS, '');
-    AppStorage.setOrCreate<string>(AppStorageKeys.DISTRIBUTED_PENDING_DATE, '');
-    AppStorage.setOrCreate<string>(AppStorageKeys.DISTRIBUTED_PENDING_FILTER, 'WEEK');
-    AppStorage.setOrCreate<number>(AppStorageKeys.DISTRIBUTED_PENDING_UPDATED_AT, 0);
+    this.initializeStorage();
+    PageRefreshCoordinator.initialize();
     void this.restoreSession();
+  }
+
+  private initializeStorage(): void {
+    this.ensureString(AppStorageKeys.AUTH_TOKEN, '');
+    this.ensureNumber(AppStorageKeys.USER_ID, 0);
+    this.ensureString(AppStorageKeys.USERNAME, '');
+    this.ensureString(AppStorageKeys.USER_ROLE, 'user');
+    this.ensureNumber(AppStorageKeys.STUDENT_PROFILE_ID, 0);
+    this.ensureBoolean(AppStorageKeys.PROFILE_COMPLETED, false);
+    this.ensureBoolean(AppStorageKeys.DISTRIBUTED_SYNC_ENABLED, false);
+    this.ensureString(AppStorageKeys.DISTRIBUTED_SYNC_STATUS, 'DISABLED');
+    this.ensureString(AppStorageKeys.DISTRIBUTED_LAST_EVENT_TYPE, '');
+    this.ensureNumber(AppStorageKeys.DISTRIBUTED_LAST_EVENT_AT, 0);
+  }
+
+  private ensureString(key: string, value: string): void {
+    if (!AppStorage.has(key)) AppStorage.setOrCreate<string>(key, value);
+  }
+
+  private ensureNumber(key: string, value: number): void {
+    if (!AppStorage.has(key)) AppStorage.setOrCreate<number>(key, value);
+  }
+
+  private ensureBoolean(key: string, value: boolean): void {
+    if (!AppStorage.has(key)) AppStorage.setOrCreate<boolean>(key, value);
   }
 
   private async restoreSession(): Promise<void> {
@@ -45,11 +58,12 @@ struct Index {
         return;
       }
       if (!snapshot.profileCompleted) {
-        const param: ProfileSetupRouteParam = new ProfileSetupRouteParam();
+        const param = new ProfileSetupRouteParam();
         param.requireSetup = true;
         this.appPathStack.pushPathByName(AppRoutes.STUDENT_PROFILE, param, false);
         return;
       }
+      await DistributedSyncService.restore(context, snapshot.userId);
       this.openHomeOrContinuation(snapshot.userId);
     } catch (error) {
       console.error(`恢复登录状态失败: ${JSON.stringify(error)}`);
@@ -58,19 +72,21 @@ struct Index {
   }
 
   private openHomeOrContinuation(userId: number): void {
-    const snapshot: DistributedStudySnapshot | undefined =
-      DistributedStudyService.consumePendingSnapshot(userId);
-    if (snapshot !== undefined && snapshot.routeName === AppRoutes.STUDY_PLAN) {
-      const param = new DistributedStudyRouteParam();
-      param.taskId = snapshot.taskId;
-      param.taskStatus = snapshot.taskStatus;
-      param.selectedDate = snapshot.selectedDate;
-      param.filter = snapshot.filter;
-      param.updatedAt = snapshot.updatedAt;
-      this.appPathStack.pushPathByName(AppRoutes.STUDY_PLAN, param, false);
+    const snapshot: ContinuationSnapshot | undefined = DistributedSyncService.consumePendingContinuation(userId);
+    if (snapshot === undefined) {
+      this.appPathStack.pushPathByName(AppRoutes.HOME, null, false);
       return;
     }
-    this.appPathStack.pushPathByName(AppRoutes.HOME, null, false);
+    const param = new ContinuationRouteParam();
+    param.entityId = snapshot.entityId;
+    param.entityKey = snapshot.entityKey;
+    param.parentEntityId = snapshot.parentEntityId;
+    param.selectedDate = snapshot.selectedDate;
+    param.filter = snapshot.filter;
+    param.tabIndex = snapshot.tabIndex;
+    param.searchKeyword = snapshot.searchKeyword;
+    param.updatedAt = snapshot.updatedAt;
+    this.appPathStack.pushPathByName(snapshot.routeName, param, false);
   }
 
   build() {
@@ -79,13 +95,7 @@ struct Index {
         Image($r('app.media.realImageGen_education_0')).width(120).height(120).borderRadius(24)
         Text('智学规划助手').fontSize(26).fontWeight(FontWeight.Bold)
         Text('正在加载...').fontColor('#667085')
-      }
-      .width('100%')
-      .height('100%')
-      .justifyContent(FlexAlign.Center)
-    }
-    .navDestination(PageMap)
-    .mode(NavigationMode.Stack)
-    .hideTitleBar(true)
+      }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+    }.navDestination(PageMap).mode(NavigationMode.Stack).hideTitleBar(true)
   }
 }

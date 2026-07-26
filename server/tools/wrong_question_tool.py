@@ -5,7 +5,11 @@ from server.tools.base_tool import BusinessTool, ToolContext
 class WrongQuestionTool(BusinessTool):
     name = "wrong_question_tool"
     description = "查询真实错题并统计高频薄弱知识点"
-    input_schema = {"type": "object", "properties": {"subject": {"type": "string"}}}
+    input_schema = {
+        "type": "object",
+        "properties": {"subject": {"type": "string", "enum": ["语文", "数学", "英语"]}},
+        "additionalProperties": False,
+    }
 
     async def execute(self, context: ToolContext, arguments: dict) -> dict:
         rows = await wrong_question_list(context.db, context.user, context.student.id, arguments.get("subject"))

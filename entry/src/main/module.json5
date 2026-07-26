@@ -44,7 +44,7 @@
         "icon": "$media:icon",
         "label": "$string:EntryAbility_label",
         "continuable": true,
-        "startWindowIcon": "$media:icon",
+        "startWindowIcon": "$media:startIcon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
         "skills": [

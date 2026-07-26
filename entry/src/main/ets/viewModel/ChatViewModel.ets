@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { AppConfig } from '../common/AppConfig';
-import { AiChatHistory, AiChatResult, AiStreamCallbacks, ChatMessage, ChatRole, QuickQuestion } from '../model/AiModels';
+import { AiChatHistory, AiChatResult, AiSessionSummary, AiStreamCallbacks, ChatMessage, ChatRole, QuickQuestion } from '../model/AiModels';
 import { AiService } from '../service/AiService';
 import { AiSessionStorageService } from '../service/AiSessionStorageService';
 import { MockDataService } from '../service/MockDataService';
@@ -36,11 +36,13 @@ export class ChatViewModel {
     };
   }
 
-  static async restore(context: common.UIAbilityContext): Promise<AiChatHistory | null> {
-    const sessionId: string = await AiSessionStorageService.load(context);
+  static async restore(context: common.UIAbilityContext, requestedSessionId: string = ''): Promise<AiChatHistory | null> {
+    const sessionId: string = requestedSessionId || await AiSessionStorageService.load(context);
     if (!sessionId) return null;
     try {
-      return await AiService.getHistory(sessionId);
+      const history: AiChatHistory = await AiService.getHistory(sessionId);
+      await AiSessionStorageService.save(context, sessionId);
+      return history;
     } catch (error) {
       console.warn(`AI 历史恢复失败: ${JSON.stringify(error)}`);
       await AiSessionStorageService.clear(context);
@@ -84,10 +86,25 @@ export class ChatViewModel {
 
   static async clear(context: common.UIAbilityContext, sessionId: string): Promise<void> {
     if (sessionId) await AiService.clearConversation(sessionId);
-    await AiSessionStorageService.clear(context);
+    if (!sessionId) await AiSessionStorageService.clear(context);
   }
 
   static async startNewConversation(context: common.UIAbilityContext): Promise<void> {
     await AiSessionStorageService.clear(context);
+  }
+
+  static async createConversation(
+    context: common.UIAbilityContext,
+    studentProfileId: number
+  ): Promise<AiSessionSummary> {
+    const session: AiSessionSummary = await AiService.createSession(studentProfileId);
+    await AiSessionStorageService.save(context, session.sessionId);
+    return session;
+  }
+
+  static async selectConversation(context: common.UIAbilityContext, sessionId: string): Promise<AiChatHistory> {
+    const history: AiChatHistory = await AiService.getHistory(sessionId);
+    await AiSessionStorageService.save(context, sessionId);
+    return history;
   }
 }

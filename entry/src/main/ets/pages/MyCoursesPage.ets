@@ -3,7 +3,9 @@ import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { DataLoadResult, DataSource, MyCourse } from '../model/ProfileModels';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
 import { CourseService } from '../service/CourseService';
+import { DistributedPageService } from '../service/DistributedPageService';
 
 @Component
 export struct MyCoursesPage {
@@ -13,10 +15,20 @@ export struct MyCoursesPage {
   @State source: DataSource = DataSource.LIVE;
   @State isLoading: boolean = false;
   @State busyCourseId: number = 0;
+  private readonly pageKey: string = 'MyCoursesPage';
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.MY_COURSES;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.COURSE_ENROLLMENT_UPDATED,
+      DistributedEventType.COURSE_PROGRESS_UPDATED,
+      DistributedEventType.MY_COURSES_UPDATED
+    ], async (): Promise<void> => { await this.load(); }, continuation);
     void this.load();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async load(): Promise<void> {
     if (this.isLoading) return;
@@ -25,6 +37,7 @@ export struct MyCoursesPage {
       const result: DataLoadResult<MyCourse[]> = await CourseService.getMyCourses();
       this.courses = result.data;
       this.source = result.source;
+      DistributedPageService.markFresh(this.pageKey);
     } finally {
       this.isLoading = false;
     }
@@ -63,6 +76,14 @@ export struct MyCoursesPage {
         }
       }
       this.courses = next;
+      DistributedPageService.publish(DistributedEventType.COURSE_PROGRESS_UPDATED,
+        DistributedEntityType.COURSE, course.courseId, '', 0, AppRoutes.MY_COURSES);
+      DistributedPageService.publish(DistributedEventType.MY_COURSES_UPDATED,
+        DistributedEntityType.COURSE, course.courseId);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME);
+      DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+        DistributedEntityType.STUDY_REPORT);
       promptAction.showToast({ message: '已移到「已完成」' });
     } catch (error) {
       promptAction.showToast({ message: '标记完成失败，请稍后重试' });

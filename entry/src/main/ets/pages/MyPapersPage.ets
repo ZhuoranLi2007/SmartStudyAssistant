@@ -2,22 +2,35 @@ import { promptAction } from '@kit.ArkUI';
 import { AppRoutes, IdRouteParam } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
 import { AIGeneratedPaper, AIPaperService } from '../service/AIPaperService';
+import { DistributedPageService } from '../service/DistributedPageService';
 
 @Component
 export struct MyPapersPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @State papers: AIGeneratedPaper[] = [];
   @State loading: boolean = false;
+  private readonly pageKey: string = 'MyPapersPage';
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.MY_PAPERS;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.AI_PAPER_CREATED,
+      DistributedEventType.AI_PAPER_DELETED,
+      DistributedEventType.AI_PAPER_LIBRARY_UPDATED
+    ], async (): Promise<void> => { await this.loadPapers(); }, continuation);
     void this.loadPapers();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async loadPapers(): Promise<void> {
     this.loading = true;
     try {
       this.papers = await AIPaperService.getMyPapers();
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       promptAction.showToast({ message: '加载失败，请稍后重试' });
       console.error(`我的试卷加载失败: ${JSON.stringify(error)}`);
@@ -51,6 +64,10 @@ export struct MyPapersPage {
   private async deletePaper(paperId: number): Promise<void> {
     try {
       await AIPaperService.deleteMyPaper(paperId);
+      DistributedPageService.publish(DistributedEventType.AI_PAPER_DELETED,
+        DistributedEntityType.PAPER, paperId);
+      DistributedPageService.publish(DistributedEventType.AI_PAPER_LIBRARY_UPDATED,
+        DistributedEntityType.PAPER);
       promptAction.showToast({ message: '试卷已删除' });
       await this.loadPapers();
     } catch (error) {

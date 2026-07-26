@@ -3,12 +3,20 @@ import { AppStorageKeys } from '../common/AppStorageKeys';
 import { EducationEntranceGrid } from '../components/home/EducationEntranceGrid';
 import { HomeHeader } from '../components/home/HomeHeader';
 import { MainTabBar } from '../components/MainTabBar';
+import { ContinuationSnapshot } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 
 @Component
 export struct HomePage {
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @Consume('appPathStack') appPathStack: NavPathStack;
   @State searchText: string = '';
+
+  aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.HOME;
+    DistributedPageService.updateContinuation(continuation);
+  }
 
   private doSearch(): void {
     const keyword: string = this.searchText.trim();

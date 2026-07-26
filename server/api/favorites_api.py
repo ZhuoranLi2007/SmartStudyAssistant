@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +46,7 @@ def favorite_data(row: Favorite, course: Course | None = None, paper: Paper | No
         "level": level,
         "coverKey": "",
         "createdAt": row.created_at.isoformat() if row.created_at else "",
+        "updatedAt": row.updated_at.isoformat() if row.updated_at else "",
     }
 
 
@@ -128,4 +131,5 @@ async def remove_favorite(
     await ensure_student_access(db, user, row.student_profile_id)
     await db.delete(row)
     await db.commit()
-    return ok(None, "已取消收藏")
+    return ok({"id": favorite_id, "deleted": True,
+               "deletedAt": datetime.now(timezone.utc).isoformat()}, "已取消收藏")

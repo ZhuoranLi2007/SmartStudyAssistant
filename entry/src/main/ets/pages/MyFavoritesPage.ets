@@ -5,17 +5,33 @@ import { CourseVideoResolver } from '../common/CourseVideoResolver';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { DataLoadResult, DataSource, FavoriteItem, FavoriteType } from '../model/ProfileModels';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { FavoriteService } from '../service/FavoriteService';
 
 @Component
 export struct MyFavoritesPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
+  initialTabIndex: number = 0;
   @State type: FavoriteType = FavoriteType.COURSE;
   @State items: FavoriteItem[] = [];
   @State source: DataSource = DataSource.LIVE;
   @State isLoading: boolean = false;
+  private readonly pageKey: string = 'MyFavoritesPage';
 
-  aboutToAppear(): void { void this.load(); }
+  aboutToAppear(): void {
+    this.type = this.initialTabIndex === 1 ? FavoriteType.PAPER : FavoriteType.COURSE;
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.MY_FAVORITES;
+    continuation.tabIndex = this.type === FavoriteType.COURSE ? 0 : 1;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.COURSE_FAVORITE_UPDATED,
+      DistributedEventType.PAPER_DETAIL_UPDATED
+    ], async (): Promise<void> => { await this.load(); }, continuation);
+    void this.load();
+  }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private context(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -28,6 +44,7 @@ export struct MyFavoritesPage {
       const result: DataLoadResult<FavoriteItem[]> = await FavoriteService.getFavorites(this.context(), this.type);
       this.items = result.data;
       this.source = result.source;
+      DistributedPageService.markFresh(this.pageKey);
     } finally {
       this.isLoading = false;
     }
@@ -35,6 +52,10 @@ export struct MyFavoritesPage {
 
   private select(type: FavoriteType): void {
     this.type = type;
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.MY_FAVORITES;
+    continuation.tabIndex = type === FavoriteType.COURSE ? 0 : 1;
+    DistributedPageService.updateContinuation(continuation);
     void this.load();
   }
 
@@ -49,7 +70,13 @@ export struct MyFavoritesPage {
 
   private async remove(id: number): Promise<void> {
     try {
+      const removed: FavoriteItem | undefined = this.items.find((item: FavoriteItem) => item.id === id);
       this.source = await FavoriteService.removeFavorite(this.context(), id);
+      DistributedPageService.publish(DistributedEventType.COURSE_FAVORITE_UPDATED,
+        removed?.type === FavoriteType.PAPER ? DistributedEntityType.PAPER : DistributedEntityType.COURSE,
+        removed?.targetId || 0);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME);
       promptAction.showToast({ message: '已取消收藏' });
       await this.load();
     } catch (error) {

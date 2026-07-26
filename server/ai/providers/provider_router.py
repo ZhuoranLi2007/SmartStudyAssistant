@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from typing import Any
 
 from server.ai.providers.base_provider import AIProvider, ProviderError, ProviderResult
 from server.ai.providers.deepseek_provider import DeepSeekProvider
@@ -30,33 +31,65 @@ class ProviderRouter:
 
     async def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         json_mode: bool = False,
         fallback_content: str = "",
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> ProviderResult:
         provider = self.provider
         try:
-            return await provider.complete(messages, json_mode=json_mode, fallback_content=fallback_content)
+            return await provider.complete(
+                messages,
+                json_mode=json_mode,
+                fallback_content=fallback_content,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
         except ProviderError:
             if not self.settings.ai_mock_fallback:
                 raise
-            return await self.mock.complete(messages, json_mode=json_mode, fallback_content=fallback_content)
+            return await self.mock.complete(
+                messages,
+                json_mode=json_mode,
+                fallback_content=fallback_content,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
 
     async def stream(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         fallback_content: str = "",
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
         provider = self.provider
         received = False
         try:
-            async for delta in provider.stream(messages, fallback_content=fallback_content):
+            async for delta in provider.stream(
+                messages,
+                fallback_content=fallback_content,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
                 received = True
                 yield delta
         except ProviderError:
             if not self.settings.ai_mock_fallback or received:
                 raise
-            async for delta in self.mock.stream(messages, fallback_content=fallback_content):
+            async for delta in self.mock.stream(
+                messages,
+                fallback_content=fallback_content,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
                 yield delta

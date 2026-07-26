@@ -80,6 +80,7 @@ async def complete_course(
         "enrollmentId": enrollment.id,
         "courseId": course_id,
         "completed": True,
+        "updatedAt": enrollment.updated_at.isoformat(),
     }, "课程已标记为完成")
 
 

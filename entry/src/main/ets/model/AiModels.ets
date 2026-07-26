@@ -109,6 +109,10 @@ export interface AiHistoryMessage {
   content: string;
   intent: string;
   createTime: string;
+  clientMessageId?: string;
+  cards?: AiCard[];
+  sources?: AiSource[];
+  fallbackUsed?: boolean;
 }
 
 export interface AiChatHistory {
@@ -116,6 +120,15 @@ export interface AiChatHistory {
   studentProfileId: number;
   summary: string;
   messages: AiHistoryMessage[];
+}
+
+export interface AiSessionSummary {
+  sessionId: string;
+  studentProfileId: number;
+  title: string;
+  messageCount: number;
+  lastMessageAt: string;
+  updatedAt: string;
 }
 
 export interface ChatMessage {
@@ -140,6 +153,7 @@ export interface AiStreamCallbacks {
   onIntent: (intent: string) => void;
   onMeta: (sessionId: string, requestId: string) => void;
   onSource: (source: AiSource) => void;
+  onMessageSaved: (sessionId: string, messageId: number, clientMessageId: string) => void;
 }
 
 export interface AiSsePayload {
@@ -152,6 +166,10 @@ export interface AiSsePayload {
   sourceId?: string;
   score?: number;
   excerpt?: string;
+  code?: string | number;
+  message?: string;
+  messageId?: number;
+  clientMessageId?: string;
 }
 
 export interface PaperQuestionDto {

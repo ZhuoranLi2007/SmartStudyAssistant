@@ -44,16 +44,16 @@ Invoke-RestMethod http://127.0.0.1:8000/api/ai/health
 ```text
 JWT 与学生权限校验
 → 会话历史与结构化摘要
-→ 规则优先的意图和实体提取
+→ DeepSeek 主导意图理解（规则仅做安全与异常降级）
 → 缺失字段追问
-→ 八个显式业务工具
-→ 中文字符 n-gram TF-IDF RAG
-→ DeepSeek/Mock Provider
+→ DeepSeek Tool Calls 选择白名单业务工具
+→ 年级、学科过滤后的中文字符 n-gram TF-IDF RAG
+→ DeepSeek 结合工具事实生成自然语言回答
 → 事实校验、结构化卡片与来源
 → 消息、推荐、AI 请求和工具日志持久化
 ```
 
-AI 不保存原始思维链。课程 ID、试卷 ID、订单 ID、价格、成绩和状态只来自数据库或工具结果。订单工具仅创建 `PENDING` 订单，不执行自动支付。
+AI 不保存原始思维链。课程 ID、试卷 ID、订单 ID、价格、成绩和状态只来自数据库或工具结果。查询工具可由 Agent 自动调用；订单创建等写操作先保存待确认动作，只有用户下一轮明确确认后才执行。订单工具仅创建 `PENDING` 订单，不执行自动支付。
 
 ## RAG
 
@@ -63,7 +63,7 @@ AI 不保存原始思维链。课程 ID、试卷 ID、订单 ID、价格、成�
 POST /api/ai/rag/rebuild
 ```
 
-重建按来源 ID 和内容哈希去重。空知识库只会返回空 `sources`，不会中断普通问答。
+重建按来源 ID 和内容哈希去重，并同步更新年级、学科、难度、知识点等元数据。Agent 可自主调用知识检索工具；空知识库只会返回空 `sources`，不会中断普通问答。
 
 ## SSE 与幂等
 
@@ -73,7 +73,7 @@ SSE 端点：
 POST /api/ai/chat/stream
 ```
 
-事件顺序为 `meta → intent → tool_start/tool_result → source → delta → done`，异常事件为 `error`。相同 `clientMessageId` 会复用结果，保证首段流式连接失败后降级普通接口不会重复创建订单或计划。
+事件顺序为 `meta → status（处理较慢时）→ intent → tool_start/tool_result → source → delta → done`，异常事件为 `error`。准备和生成阶段每 4 秒发送状态心跳，避免移动端读取超时。相同 `clientMessageId` 会复用结果，保证首段流式连接失败后降级普通接口不会重复创建订单或计划。
 
 HarmonyOS 前端当前 `ENABLE_SSE=true`。如果设备网络或系统 HTTP 流式能力不稳定，可临时改为 `false` 使用普通接口；切换只影响传输方式，不改变后端编排与响应结构。
 

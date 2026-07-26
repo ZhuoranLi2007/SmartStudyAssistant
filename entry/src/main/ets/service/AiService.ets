@@ -2,7 +2,7 @@ import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { AppConfig } from '../common/AppConfig';
 import { AppStorageKeys } from '../common/AppStorageKeys';
-import { AiChatHistory, AiChatResult, AiSource, AiSsePayload, AiStreamCallbacks } from '../model/AiModels';
+import { AiChatHistory, AiChatResult, AiSessionSummary, AiSource, AiSsePayload, AiStreamCallbacks } from '../model/AiModels';
 import { HttpClient } from './HttpClient';
 
 class AiChatRequestBody {
@@ -17,6 +17,10 @@ class AiRequestHeaders {
   'Content-Type': string = 'application/json';
   Accept: string = 'text/event-stream';
   Authorization: string = '';
+}
+
+class AiSessionCreateBody {
+  studentProfileId: number = 0;
 }
 
 export class AiService {
@@ -54,7 +58,23 @@ export class AiService {
     return (await HttpClient.get<AiChatHistory>(`/ai/sessions/${sessionId}/messages`)).data;
   }
 
+  static async getSessions(studentProfileId: number): Promise<AiSessionSummary[]> {
+    return (await HttpClient.get<AiSessionSummary[]>(
+      `/ai/sessions?student_profile_id=${studentProfileId}`
+    )).data;
+  }
+
+  static async createSession(studentProfileId: number): Promise<AiSessionSummary> {
+    const body = new AiSessionCreateBody();
+    body.studentProfileId = studentProfileId;
+    return (await HttpClient.post<AiSessionSummary>('/ai/sessions', body)).data;
+  }
+
   static async clearConversation(sessionId: string): Promise<void> {
+    await HttpClient.post<Object>(`/ai/sessions/${sessionId}/clear`, new Object());
+  }
+
+  static async deleteConversation(sessionId: string): Promise<void> {
     await HttpClient.delete<Object>(`/ai/sessions/${sessionId}`);
   }
 
@@ -74,11 +94,16 @@ export class AiService {
     let finalResult: AiChatResult | null = null;
     let receivedDelta: boolean = false;
     let settled: boolean = false;
+    const startedAt: number = Date.now();
+    let lastEventName: string = 'connecting';
 
     return new Promise<AiChatResult>((resolve: (value: AiChatResult) => void, reject: (reason: Error) => void) => {
       const fail = (message: string): void => {
         if (settled) return;
         settled = true;
+        const failureType: string = message.startsWith('SERVICE:') ? 'service' :
+          (message.startsWith('HTTP ') ? 'http' : 'transport');
+        console.warn(`AI流式请求失败 elapsedMs=${Date.now() - startedAt} stage=${lastEventName} type=${failureType}`);
         client.destroy();
         reject(new Error(`${receivedDelta ? 'PARTIAL:' : 'EMPTY:'}${message}`));
       };
@@ -97,6 +122,7 @@ export class AiService {
           }
           if (dataText) {
             try {
+              lastEventName = eventName;
               if (eventName === 'done') {
                 finalResult = JSON.parse(dataText) as AiChatResult;
               } else if (eventName === 'delta') {
@@ -111,6 +137,10 @@ export class AiService {
               } else if (eventName === 'meta') {
                 const payload = JSON.parse(dataText) as AiSsePayload;
                 callbacks.onMeta(payload.sessionId || '', payload.requestId || '');
+              } else if (eventName === 'message_saved') {
+                const payload = JSON.parse(dataText) as AiSsePayload;
+                callbacks.onMessageSaved(payload.sessionId || '', payload.messageId || 0,
+                  payload.clientMessageId || clientMessageId);
               } else if (eventName === 'source') {
                 const payload = JSON.parse(dataText) as AiSsePayload;
                 const source: AiSource = {
@@ -122,7 +152,9 @@ export class AiService {
                 };
                 callbacks.onSource(source);
               } else if (eventName === 'error') {
-                fail('AI 流式响应失败');
+                const payload = JSON.parse(dataText) as AiSsePayload;
+                const errorCode: string = payload.code === undefined ? 'AI_STREAM_FAILED' : `${payload.code}`;
+                fail(`SERVICE:${errorCode}:${payload.message || 'AI 流式响应失败'}`);
               }
             } catch (error) {
               console.warn(`忽略无法解析的 SSE 事件: ${JSON.stringify(error)}`);
@@ -150,8 +182,9 @@ export class AiService {
         method: http.RequestMethod.POST,
         header: headers,
         extraData: JSON.stringify(AiService.body(studentProfileId, message, sessionId, clientMessageId)),
-        connectTimeout: AppConfig.REQUEST_TIMEOUT_MS,
-        readTimeout: AppConfig.REQUEST_TIMEOUT_MS
+        // readTimeout 是请求全生命周期上限；Agent 工具调用和回答生成可能超过 10 秒。
+        connectTimeout: AppConfig.AI_STREAM_CONNECT_TIMEOUT_MS,
+        readTimeout: AppConfig.AI_STREAM_READ_TIMEOUT_MS
       }).then((responseCode: number) => {
         if (responseCode < 200 || responseCode >= 300) fail(`HTTP ${responseCode}`);
       }).catch((error: Error) => fail(error.message || 'AI 流式连接失败'));

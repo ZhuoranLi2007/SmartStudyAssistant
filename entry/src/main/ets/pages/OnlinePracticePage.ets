@@ -6,6 +6,8 @@ import { MockHomeData } from '../data/MockHomeData';
 import { PracticeAttemptResult, PracticeLoadResult, PracticeQuestionResult } from '../model/AiModels';
 import { TaskStatus } from '../model/DomainModels';
 import { PracticeOption, PracticeQuestion } from '../model/HomeModels';
+import { DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { MockDataService } from '../service/MockDataService';
 import { PracticeService } from '../service/PracticeService';
 import { StudyPlanService } from '../service/StudyPlanService';
@@ -123,6 +125,16 @@ export struct OnlinePracticePage {
         this.questions = updated;
         this.score = Math.round(result.score);
         this.submitted = true;
+        DistributedPageService.publish(DistributedEventType.PAPER_SUBMISSION_UPDATED,
+          DistributedEntityType.PAPER, this.paperId, '', this.studentProfileId);
+        if ((result.wrongSavedCount || 0) > 0) {
+          DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_CREATED,
+            DistributedEntityType.WRONG_QUESTION, 0, '', this.studentProfileId);
+        }
+        DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+          DistributedEntityType.STUDY_REPORT, this.studentProfileId);
+        DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+          DistributedEntityType.HOME, this.studentProfileId);
         await this.completePlanTask();
         return;
       } catch (error) {
@@ -146,6 +158,10 @@ export struct OnlinePracticePage {
     if (this.taskId <= 0) return;
     try {
       await StudyPlanService.updateStatus(this.taskId, TaskStatus.COMPLETED);
+      DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
+        DistributedEntityType.STUDY_TASK, this.taskId, '', this.studentProfileId);
+      DistributedPageService.publish(DistributedEventType.STUDY_PLAN_UPDATED,
+        DistributedEntityType.STUDY_PLAN, this.taskId, '', this.studentProfileId);
       promptAction.showToast({ message: '试卷任务已同步完成' });
     } catch (error) {
       console.warn(`试卷任务状态同步失败: ${JSON.stringify(error)}`);

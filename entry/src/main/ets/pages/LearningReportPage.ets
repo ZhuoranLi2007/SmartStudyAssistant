@@ -1,6 +1,9 @@
 import { AppStorageKeys } from '../common/AppStorageKeys';
+import { AppRoutes } from '../common/AppRoutes';
 import { PageHeader } from '../components/PageHeader';
 import { DataLoadResult, DataSource, LearningReport } from '../model/ProfileModels';
+import { ContinuationSnapshot, DistributedEventType } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { LearningReportService } from '../service/LearningReportService';
 
 @Component
@@ -15,8 +18,26 @@ export struct LearningReportPage {
   @State aiSuggestion: string = '';
   @State source: DataSource = DataSource.MOCK;
   @State loading: boolean = true;
+  private readonly pageKey: string = 'LearningReportPage';
 
-  aboutToAppear(): void { void this.load(); }
+  aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.LEARNING_REPORT;
+    continuation.entityId = this.studentProfileId;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.COURSE_PROGRESS_UPDATED,
+      DistributedEventType.PAPER_SUBMISSION_UPDATED,
+      DistributedEventType.WRONG_QUESTION_CREATED,
+      DistributedEventType.WRONG_QUESTION_UPDATED,
+      DistributedEventType.WRONG_QUESTION_DELETED,
+      DistributedEventType.WRONG_QUESTION_RETEST_UPDATED,
+      DistributedEventType.STUDY_TASK_UPDATED,
+      DistributedEventType.STUDY_REPORT_UPDATED
+    ], async (): Promise<void> => { await this.load(); }, continuation);
+    void this.load();
+  }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private async load(): Promise<void> {
     this.loading = true;
@@ -31,6 +52,7 @@ export struct LearningReportPage {
       this.weakPoints = data.weakPoints ?? [];
       this.aiSuggestion = data.aiSuggestion ?? '';
       this.source = result.source;
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       console.warn(`加载学习报告失败: ${JSON.stringify(error)}`);
     } finally {

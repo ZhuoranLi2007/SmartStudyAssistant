@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
+import { AppRoutes } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { CourseBasicInfo } from '../components/course/CourseBasicInfo';
 import { CourseBottomBar } from '../components/course/CourseBottomBar';
@@ -13,11 +14,13 @@ import { CourseDetailMockData } from '../data/CourseDetailMockData';
 import { CourseDetailData } from '../model/CourseDetailModels';
 import { Course, StudyTask } from '../model/DomainModels';
 import { DataLoadResult, DataSource, FavoriteItem } from '../model/ProfileModels';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
 import { CourseDetailService } from '../service/CourseDetailService';
 import { CourseService } from '../service/CourseService';
 import { FavoriteService } from '../service/FavoriteService';
 import { MockDataService } from '../service/MockDataService';
 import { StudyPlanService } from '../service/StudyPlanService';
+import { DistributedPageService } from '../service/DistributedPageService';
 
 @Component
 export struct CourseDetailPage {
@@ -36,10 +39,25 @@ export struct CourseDetailPage {
   @State enrollBusy: boolean = false;
   @State isAdding: boolean = false;
   @State isAdded: boolean = false;
+  private readonly pageKey: string = 'CourseDetailPage';
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.COURSE_DETAIL;
+    continuation.entityId = this.courseId;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.COURSE_DETAIL_UPDATED,
+      DistributedEventType.COURSE_FAVORITE_UPDATED,
+      DistributedEventType.COURSE_ENROLLMENT_UPDATED,
+      DistributedEventType.COURSE_PROGRESS_UPDATED,
+      DistributedEventType.STUDY_TASK_CREATED,
+      DistributedEventType.STUDY_TASK_UPDATED,
+      DistributedEventType.STUDY_TASK_DELETED
+    ], async (): Promise<void> => { await this.initialize(); }, continuation);
     void this.initialize();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private context(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -60,6 +78,7 @@ export struct CourseDetailPage {
       await this.restoreFavorite();
       await this.restoreEnrollState();
       await this.restorePlanState();
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       this.loadError = `课程加载失败：${error}`;
     } finally {
@@ -117,6 +136,10 @@ export struct CourseDetailPage {
         this.favoriteId = item.id;
         promptAction.showToast({ message: '已收藏课程' });
       }
+      DistributedPageService.publish(DistributedEventType.COURSE_FAVORITE_UPDATED,
+        DistributedEntityType.COURSE, this.courseId, '', this.studentProfileId, AppRoutes.COURSE_DETAIL);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, this.studentProfileId);
     } catch (error) {
       const message: string = `${error}`;
       if (message.includes('档案')) {
@@ -144,6 +167,12 @@ export struct CourseDetailPage {
     try {
       await CourseService.enroll(this.detail.course.id);
       this.isEnrolled = true;
+      DistributedPageService.publish(DistributedEventType.COURSE_ENROLLMENT_UPDATED,
+        DistributedEntityType.COURSE, this.courseId, '', this.studentProfileId, AppRoutes.COURSE_DETAIL);
+      DistributedPageService.publish(DistributedEventType.MY_COURSES_UPDATED,
+        DistributedEntityType.COURSE, this.courseId);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, this.studentProfileId);
       promptAction.showToast({ message: '已加入我的课程，可观看视频' });
     } catch (error) {
       promptAction.showToast({ message: '报名失败，请稍后重试' });
@@ -163,9 +192,17 @@ export struct CourseDetailPage {
       if (!this.isEnrolled) {
         await CourseService.enroll(this.detail.course.id);
         this.isEnrolled = true;
+        DistributedPageService.publish(DistributedEventType.COURSE_ENROLLMENT_UPDATED,
+          DistributedEntityType.COURSE, this.courseId, '', this.studentProfileId);
+        DistributedPageService.publish(DistributedEventType.MY_COURSES_UPDATED,
+          DistributedEntityType.COURSE, this.courseId);
       }
-      await StudyPlanService.addTask(this.studentProfileId, '课程', this.detail.course.id);
+      const task: StudyTask = await StudyPlanService.addTask(this.studentProfileId, '课程', this.detail.course.id);
       this.isAdded = true;
+      DistributedPageService.publish(DistributedEventType.STUDY_TASK_CREATED,
+        DistributedEntityType.STUDY_TASK, task.id, '', this.studentProfileId, AppRoutes.COURSE_DETAIL);
+      DistributedPageService.publish(DistributedEventType.STUDY_PLAN_UPDATED,
+        DistributedEntityType.STUDY_PLAN, task.id, '', this.studentProfileId);
       promptAction.showToast({ message: '已加入本周学习计划' });
     } catch (error) {
       if (`${error}`.includes('409')) {

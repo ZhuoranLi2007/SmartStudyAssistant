@@ -64,3 +64,14 @@ export class DistributedStudyRouteParam {
   filter: string = 'WEEK';
   updatedAt: number = 0;
 }
+
+export class ContinuationRouteParam {
+  entityId: number = 0;
+  entityKey: string = '';
+  parentEntityId: number = 0;
+  selectedDate: string = '';
+  filter: string = '';
+  tabIndex: number = 0;
+  searchKeyword: string = '';
+  updatedAt: number = 0;
+}

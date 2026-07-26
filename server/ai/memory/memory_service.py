@@ -1,6 +1,8 @@
 from uuid import uuid4
 
 from fastapi import HTTPException
+from datetime import datetime, timezone
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +48,36 @@ class ConversationMemoryService:
         messages.extend({"role": row.role, "content": row.content} for row in rows)
         return messages
 
+    async def create_session(self, student_profile_id: int) -> dict:
+        session = await self.get_or_create(student_profile_id)
+        await self.db.flush()
+        return self.session_data(session, 0, None)
+
+    async def list_sessions(self, student_profile_id: int | None = None) -> list[dict]:
+        statement = (
+            select(ChatSession, func.count(ChatMessage.id), func.max(ChatMessage.created_at))
+            .outerjoin(ChatMessage, ChatMessage.session_id == ChatSession.id)
+            .where(ChatSession.user_id == self.user.id)
+            .group_by(ChatSession.id)
+        )
+        if student_profile_id is not None:
+            statement = statement.where(ChatSession.student_profile_id == student_profile_id)
+        rows = (await self.db.execute(
+            statement.order_by(func.coalesce(func.max(ChatMessage.created_at), ChatSession.updated_at).desc())
+        )).all()
+        return [self.session_data(session, int(count or 0), last_message_at) for session, count, last_message_at in rows]
+
+    @staticmethod
+    def session_data(session: ChatSession, message_count: int, last_message_at: datetime | None) -> dict:
+        return {
+            "sessionId": session.id,
+            "studentProfileId": session.student_profile_id,
+            "title": session.title,
+            "messageCount": message_count,
+            "lastMessageAt": last_message_at.isoformat() if last_message_at else "",
+            "updatedAt": session.updated_at.isoformat(),
+        }
+
     def add_message(
         self,
         session: ChatSession,
@@ -66,6 +98,10 @@ class ConversationMemoryService:
             model_metadata_json=model_metadata or {},
         )
         self.db.add(row)
+        session.updated_at = datetime.now(timezone.utc)
+        if role == "user" and session.title == "学习咨询":
+            normalized = " ".join(content.strip().split())
+            session.title = normalized[:24] or "学习咨询"
         return row
 
     async def summarize_if_needed(self, session: ChatSession) -> None:
@@ -106,6 +142,9 @@ class ConversationMemoryService:
                 "clientMessageId": row.client_message_id,
                 "toolCalls": row.tool_calls_json,
                 "modelMetadata": row.model_metadata_json,
+                "cards": (row.model_metadata_json or {}).get("cards", []),
+                "sources": (row.model_metadata_json or {}).get("sources", []),
+                "fallbackUsed": bool((row.model_metadata_json or {}).get("fallbackUsed", False)),
                 "createTime": row.created_at.isoformat(),
             } for row in rows],
         }
@@ -117,3 +156,10 @@ class ConversationMemoryService:
         await self.db.execute(delete(ChatMessage).where(ChatMessage.session_id == session.id))
         session.summary = ""
         session.context_json = {}
+        session.updated_at = datetime.now(timezone.utc)
+
+    async def delete_session(self, session_id: str) -> None:
+        session = await self.db.get(ChatSession, session_id)
+        if session is None or session.user_id != self.user.id:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        await self.db.delete(session)

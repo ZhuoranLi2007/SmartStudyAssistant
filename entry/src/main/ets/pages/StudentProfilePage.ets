@@ -4,6 +4,8 @@ import { AppRoutes } from '../common/AppRoutes';
 import { AppStorageKeys } from '../common/AppStorageKeys';
 import { PageHeader } from '../components/PageHeader';
 import { StudentProfile } from '../model/DomainModels';
+import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
+import { DistributedPageService } from '../service/DistributedPageService';
 import { SessionSnapshot, SessionStorageService } from '../service/SessionStorageService';
 import { StudentService } from '../service/StudentService';
 
@@ -22,13 +24,22 @@ export struct StudentProfilePage {
   @State loadError: string = '';
   @State formError: string = '';
   @State usingMockData: boolean = false;
+  private readonly pageKey: string = 'StudentProfilePage';
 
   private readonly grades: string[] = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级'];
   private readonly subjects: string[] = ['语文', '数学', '英语'];
 
   aboutToAppear(): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.STUDENT_PROFILE;
+    continuation.entityId = this.studentProfileId;
+    DistributedPageService.activate(this.pageKey, [DistributedEventType.STUDENT_PROFILE_UPDATED],
+      async (): Promise<void> => { if (!this.isSaving && this.studentProfileId > 0) await this.loadProfile(); },
+      continuation);
     if (this.studentProfileId > 0) void this.loadProfile();
   }
+
+  aboutToDisappear(): void { DistributedPageService.deactivate(this.pageKey); }
 
   private context(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -51,6 +62,7 @@ export struct StudentProfilePage {
     try {
       this.applyProfile(await StudentService.getProfile(this.studentProfileId));
       this.usingMockData = StudentService.isUsingMockFallback();
+      DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       console.error(`学生档案加载失败: ${JSON.stringify(error)}`);
       this.loadError = '学生档案暂时无法加载，请检查网络后重试。';
@@ -140,6 +152,12 @@ export struct StudentProfilePage {
       snapshot.studentProfileId = saved.id;
       snapshot.profileCompleted = true;
       await SessionStorageService.save(this.context(), snapshot);
+      DistributedPageService.publish(DistributedEventType.STUDENT_PROFILE_UPDATED,
+        DistributedEntityType.STUDENT, saved.id, '', 0, AppRoutes.STUDENT_PROFILE);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, saved.id);
+      DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+        DistributedEntityType.STUDY_REPORT, saved.id);
       promptAction.showToast({ message: '学生档案已保存' });
       if (this.requireSetup) {
         this.appPathStack.clear();

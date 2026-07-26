@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ from server.models import Paper, PaperQuestion, User
 from server.schemas import GeneratePaperRequest, PaperAnalyzeRequest, PracticeAttemptCreate
 from server.services.ai_paper_service import _display_name, delete_my_paper, generate_paper, list_my_papers
 from server.services.learning_service import submit_attempt
+from server.services.access_service import ensure_paper_access, ensure_student_access
 from server.utils.responses import ok
 from server.utils.security import get_current_user
 
@@ -17,7 +20,8 @@ def paper_data(row: Paper) -> dict:
     name = _display_name(row.name) if row.is_ai_generated else row.name
     return {"id": row.id, "name": name, "grade": row.grade, "subject": row.subject,
             "difficulty": row.difficulty, "knowledgePoints": row.knowledge_points,
-            "questionCount": row.question_count, "suitableCourseLevel": row.suitable_course_level, "ocrText": row.ocr_text}
+            "questionCount": row.question_count, "suitableCourseLevel": row.suitable_course_level, "ocrText": row.ocr_text,
+            "updatedAt": row.updated_at.isoformat()}
 
 
 @router.get("")
@@ -36,10 +40,8 @@ async def list_papers(
 
 
 @router.get("/{paper_id}/questions")
-async def paper_questions(paper_id: int, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
-    paper = await db.get(Paper, paper_id)
-    if paper is None:
-        raise HTTPException(status_code=404, detail="试卷不存在")
+async def paper_questions(paper_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    paper = await ensure_paper_access(db, user, paper_id)
     rows = list((await db.scalars(select(PaperQuestion).where(
         PaperQuestion.paper_id == paper_id
     ).order_by(PaperQuestion.sequence))).all())
@@ -54,11 +56,13 @@ async def create_attempt(
     paper_id: int, payload: PracticeAttemptCreate,
     db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
+    await ensure_paper_access(db, user, paper_id)
     result = await submit_attempt(
         db, user, payload.student_profile_id, paper_id,
         [(item.question_id, item.selected_index) for item in payload.answers],
     )
     await db.commit()
+    result["updatedAt"] = datetime.now(timezone.utc).isoformat()
     return ok(result, "答题结果已保存")
 
 
@@ -67,12 +71,14 @@ async def generate(
     payload: GeneratePaperRequest,
     db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
+    await ensure_student_access(db, user, payload.student_profile_id)
     paper = await generate_paper(
         db, user, payload.student_profile_id, payload.requirement,
         payload.grade, payload.subject, payload.based_on_wrong_questions,
     )
     await db.commit()
-    return ok({"id": paper.id, "name": _display_name(paper.name), "questionCount": paper.question_count}, "试卷已生成")
+    return ok({"id": paper.id, "name": _display_name(paper.name), "questionCount": paper.question_count,
+               "updatedAt": paper.updated_at.isoformat()}, "试卷已生成")
 
 
 @router.get("/my/list")
@@ -89,7 +95,7 @@ async def delete_my_paper_endpoint(
 ):
     await delete_my_paper(db, user, paper_id)
     await db.commit()
-    return ok(None, "试卷已删除")
+    return ok({"id": paper_id, "deleted": True, "deletedAt": datetime.now(timezone.utc).isoformat()}, "试卷已删除")
 
 
 @router.post("/analyze")
@@ -116,8 +122,7 @@ async def analyze(payload: PaperAnalyzeRequest, _user: User = Depends(get_curren
 
 
 @router.get("/{paper_id}")
-async def get_paper(paper_id: int, db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)):
-    row = await db.get(Paper, paper_id)
-    if row is None: raise HTTPException(status_code=404, detail="试卷不存在")
+async def get_paper(paper_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    row = await ensure_paper_access(db, user, paper_id)
     return ok(paper_data(row))
 

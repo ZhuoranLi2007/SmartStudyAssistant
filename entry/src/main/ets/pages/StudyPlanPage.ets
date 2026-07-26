@@ -9,12 +9,14 @@ import { StudyTaskCard } from '../components/studyplan/StudyTaskCard';
 import { WeekDateStrip } from '../components/studyplan/WeekDateStrip';
 import { StudentProfile, StudyTask, TaskStatus } from '../model/DomainModels';
 import {
-  DistributedStudyListener,
-  DistributedStudySnapshot
+  ContinuationSnapshot,
+  DistributedEntityType,
+  DistributedEventType
 } from '../model/DistributedStudyModels';
 import { DataLoadResult, DataSource } from '../model/ProfileModels';
 import { StudyPlanFilter, WeekDayItem } from '../model/StudyPlanModels';
-import { DistributedStudyService } from '../service/DistributedStudyService';
+import { DistributedPageService } from '../service/DistributedPageService';
+import { PageRefreshResult } from '../service/PageRefreshCoordinator';
 import { MockDataService } from '../service/MockDataService';
 import { StudentService } from '../service/StudentService';
 import { StudyPlanService } from '../service/StudyPlanService';
@@ -24,7 +26,6 @@ export struct StudyPlanPage {
   @Consume('appPathStack') appPathStack: NavPathStack;
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @StorageLink(AppStorageKeys.USER_ROLE) role: string = 'parent';
-  @StorageLink(AppStorageKeys.DISTRIBUTED_SYNC_ENABLED) distributedSyncEnabled: boolean = false;
   distributedParam: DistributedStudyRouteParam = new DistributedStudyRouteParam();
   @State tasks: StudyTask[] = [];
   @State weekDays: WeekDayItem[] = [];
@@ -41,21 +42,28 @@ export struct StudyPlanPage {
   @State summaryPaper: number = 0;
   @State summaryProgress: number = 0;
   @State summaryWeekLabel: string = '';
-  private readonly distributedListener: DistributedStudyListener =
-    (snapshot: DistributedStudySnapshot): void => {
-      this.applyDistributedSnapshot(snapshot);
-    };
+  private readonly pageKey: string = 'StudyPlanPageTasks';
 
   aboutToAppear(): void {
     this.weekDays = this.createWeekDays();
     this.restoreDistributedRoute();
-    DistributedStudyService.subscribe(this.distributedListener);
-    this.publishDistributedState(this.distributedParam.taskId, this.distributedParam.taskStatus);
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.STUDY_PLAN;
+    continuation.entityId = this.distributedParam.taskId;
+    continuation.selectedDate = this.selectedDate;
+    continuation.filter = this.filter;
+    DistributedPageService.activate(this.pageKey, [
+      DistributedEventType.STUDY_PLAN_UPDATED,
+      DistributedEventType.STUDY_TASK_CREATED,
+      DistributedEventType.STUDY_TASK_UPDATED,
+      DistributedEventType.STUDY_TASK_DELETED
+    ], async (): Promise<PageRefreshResult> => this.loadData(true), continuation);
+    this.updateContinuation(this.distributedParam.taskId);
     void this.loadData();
   }
 
   aboutToDisappear(): void {
-    DistributedStudyService.unsubscribe(this.distributedListener);
+    DistributedPageService.deactivate(this.pageKey);
   }
 
   private isoDate(value: Date): string {
@@ -79,40 +87,24 @@ export struct StudyPlanPage {
     }
   }
 
-  private applyDistributedSnapshot(snapshot: DistributedStudySnapshot): void {
-    if (snapshot.routeName !== AppRoutes.STUDY_PLAN) return;
-    if (snapshot.selectedDate) this.selectedDate = snapshot.selectedDate;
-    if (snapshot.filter === StudyPlanFilter.TODAY) {
-      this.filter = StudyPlanFilter.TODAY;
-    } else if (snapshot.filter === StudyPlanFilter.COMPLETED) {
-      this.filter = StudyPlanFilter.COMPLETED;
-    } else {
-      this.filter = StudyPlanFilter.WEEK;
-    }
-    void this.loadData();
-  }
-
-  private publishDistributedState(taskId: number = 0, taskStatus: string = ''): void {
-    if (!this.distributedSyncEnabled) return;
-    const snapshot = new DistributedStudySnapshot();
-    snapshot.routeName = AppRoutes.STUDY_PLAN;
-    snapshot.taskId = taskId;
-    snapshot.taskStatus = taskStatus;
-    snapshot.selectedDate = this.selectedDate;
-    snapshot.filter = this.filter;
-    snapshot.updatedAt = Date.now();
-    DistributedStudyService.publish(snapshot);
+  private updateContinuation(taskId: number = 0): void {
+    const continuation = new ContinuationSnapshot();
+    continuation.routeName = AppRoutes.STUDY_PLAN;
+    continuation.entityId = taskId;
+    continuation.selectedDate = this.selectedDate;
+    continuation.filter = this.filter;
+    DistributedPageService.updateContinuation(continuation);
   }
 
   private selectFilter(value: StudyPlanFilter): void {
     this.filter = value;
-    this.publishDistributedState();
+    this.updateContinuation();
   }
 
   private selectDate(value: string): void {
     this.selectedDate = value;
     this.filter = StudyPlanFilter.TODAY;
-    this.publishDistributedState();
+    this.updateContinuation();
   }
 
 
@@ -129,24 +121,30 @@ export struct StudyPlanPage {
     return result;
   }
 
-  private async loadData(): Promise<void> {
-    if (this.isLoading) return;
+  private async loadData(preserveCurrentOnFailure: boolean = false): Promise<PageRefreshResult> {
+    if (this.isLoading) return PageRefreshResult.BUSY;
     if (this.studentProfileId <= 0 && !AppConfig.USE_MOCK_DATA) {
       this.tasks = [];
       this.studentName = '';
       this.refreshSummary();
-      return;
+      DistributedPageService.markFresh(this.pageKey);
+      return PageRefreshResult.SUCCESS;
     }
     this.isLoading = true;
     try {
+      let nextStudentName: string = this.studentName;
       try {
         const profile: StudentProfile = await StudentService.getProfile(this.studentProfileId);
-        this.studentName = profile.name;
+        nextStudentName = profile.name;
       } catch (error) {
-        this.studentName = MockDataService.getStudentProfile().name;
-        this.source = DataSource.MOCK;
+        if (!preserveCurrentOnFailure) nextStudentName = MockDataService.getStudentProfile().name;
       }
       const taskResult: DataLoadResult<StudyTask[]> = await StudyPlanService.getTasks(this.studentProfileId);
+      if (preserveCurrentOnFailure && taskResult.source === DataSource.MOCK && !AppConfig.USE_MOCK_DATA) {
+        console.warn('跨设备学习计划刷新未取得实时数据，保留当前页面内容');
+        return PageRefreshResult.FAILED;
+      }
+      this.studentName = nextStudentName;
       this.tasks = taskResult.data;
       if (taskResult.source === DataSource.MOCK) {
         this.source = DataSource.MOCK;
@@ -155,12 +153,17 @@ export struct StudyPlanPage {
         this.source = DataSource.LIVE;
         this.sourceMessage = '';
       }
+      DistributedPageService.markFresh(this.pageKey);
+      return PageRefreshResult.SUCCESS;
     } catch (error) {
       console.error(`学习计划加载失败: ${JSON.stringify(error)}`);
-      this.tasks = MockDataService.getTasks();
-      this.studentName = MockDataService.getStudentProfile().name;
-      this.source = DataSource.MOCK;
-      this.sourceMessage = '加载失败，当前展示演示学习计划';
+      if (!preserveCurrentOnFailure) {
+        this.tasks = MockDataService.getTasks();
+        this.studentName = MockDataService.getStudentProfile().name;
+        this.source = DataSource.MOCK;
+        this.sourceMessage = '加载失败，当前展示演示学习计划';
+      }
+      return PageRefreshResult.FAILED;
     } finally {
       this.isLoading = false;
       this.refreshSummary();
@@ -241,9 +244,8 @@ export struct StudyPlanPage {
     try {
       if (task.status === TaskStatus.NOT_STARTED) {
         await StudyPlanService.updateStatus(task.id, TaskStatus.IN_PROGRESS);
-        this.publishDistributedState(task.id, TaskStatus.IN_PROGRESS);
-      } else {
-        this.publishDistributedState(task.id, task.status);
+        DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
+          DistributedEntityType.STUDY_TASK, task.id, '', this.studentProfileId);
       }
       if (task.taskType === '试卷') {
         const param: OnlinePracticeRouteParam = new OnlinePracticeRouteParam();
@@ -271,7 +273,12 @@ export struct StudyPlanPage {
     this.operatingTaskId = task.id;
     try {
       await StudyPlanService.updateStatus(task.id, TaskStatus.COMPLETED);
-      this.publishDistributedState(task.id, TaskStatus.COMPLETED);
+      DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
+        DistributedEntityType.STUDY_TASK, task.id, '', this.studentProfileId);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, this.studentProfileId);
+      DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
+        DistributedEntityType.STUDY_REPORT, this.studentProfileId);
       promptAction.showToast({ message: '学习任务已完成' });
       await this.loadData();
     } catch (error) {
@@ -294,6 +301,8 @@ export struct StudyPlanPage {
     this.operatingTaskId = task.id;
     try {
       await StudyPlanService.deleteTask(task.id);
+      DistributedPageService.publish(DistributedEventType.STUDY_TASK_DELETED,
+        DistributedEntityType.STUDY_TASK, task.id, '', this.studentProfileId);
       promptAction.showToast({ message: '任务已删除' });
       await this.loadData();
     } catch (error) {

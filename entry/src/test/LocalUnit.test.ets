@@ -1,5 +1,10 @@
 import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
 import {
+  ContinuationSnapshot,
+  ContinuationSnapshotCodec,
+  DistributedChangeEvent,
+  DistributedEventCodec,
+  DistributedEventType,
   DistributedStudySnapshot,
   DistributedStudySnapshotCodec
 } from '../main/ets/model/DistributedStudyModels';
@@ -64,6 +69,32 @@ export default function localUnitTest() {
       expect(DistributedStudySnapshotCodec.isUsable(source)).assertFalse();
       const normalized: DistributedStudySnapshot = DistributedStudySnapshotCodec.normalize(source);
       expect(DistributedStudySnapshotCodec.isUsable(normalized)).assertFalse();
+    });
+    it('distributedEventKeepsOnlyLightweightFields', 0, () => {
+      const source = new DistributedChangeEvent();
+      source.schemaVersion = DistributedEventCodec.SCHEMA_VERSION;
+      source.eventId = 'device_1_100_1';
+      source.eventType = DistributedEventType.WRONG_QUESTION_UPDATED;
+      source.entityType = 'WRONG_QUESTION';
+      source.entityId = 9;
+      source.entityKey = '  safe-key  ';
+      source.sourceDeviceId = ' install_abc ';
+      source.userId = 42;
+      source.updatedAt = 100;
+      const normalized: DistributedChangeEvent = DistributedEventCodec.normalize(source);
+      expect(normalized.entityKey).assertEqual('safe-key');
+      expect(normalized.sourceDeviceId).assertEqual('install_abc');
+      expect(DistributedEventCodec.isUsable(normalized)).assertTrue();
+    });
+    it('continuationRejectsPrivateOrUnknownRoutes', 0, () => {
+      const source = new ContinuationSnapshot();
+      source.schemaVersion = ContinuationSnapshotCodec.SCHEMA_VERSION;
+      source.routeName = 'LoginPage';
+      source.searchKeyword = '六年级数学';
+      source.updatedAt = 100;
+      const normalized: ContinuationSnapshot = ContinuationSnapshotCodec.normalize(source);
+      expect(normalized.routeName).assertEqual('');
+      expect(ContinuationSnapshotCodec.isUsable(normalized)).assertFalse();
     });
   });
 }

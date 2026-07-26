@@ -7,7 +7,11 @@ from server.tools.base_tool import BusinessTool, ToolContext
 class StudentProfileTool(BusinessTool):
     name = "student_profile_tool"
     description = "读取已授权学生的年级、成绩、薄弱点、目标和学习时间"
-    input_schema = {"type": "object", "properties": {"subject": {"type": "string"}}}
+    input_schema = {
+        "type": "object",
+        "properties": {"subject": {"type": "string", "enum": ["语文", "数学", "英语"]}},
+        "additionalProperties": False,
+    }
 
     async def execute(self, context: ToolContext, arguments: dict) -> dict:
         statement = select(StudentSubjectProfile).where(StudentSubjectProfile.student_profile_id == context.student.id)
