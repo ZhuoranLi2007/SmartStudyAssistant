@@ -277,7 +277,6 @@ export struct AiAssistantPage {
 
   private async toggleVoice(): Promise<void> {
     if (this.isRecording) {
-      // 停止录音
       speechAiService.stopBackendRecording();
       speechAiService.cancelBackendRecording();
       speechAiService.stopListening();
@@ -294,8 +293,7 @@ export struct AiAssistantPage {
       this.inputText = '';
       this.asrHasResult = false;
 
-      // 先尝试后端语音识别（AudioCapturer 录音 + 后端 API 识别）
-      // 后端识别支持长语音、更准确，兼容模拟器
+      // 长语音优先交给后端识别；无法启动时再回退到设备原生 ASR。
       const backendStarted: boolean = await speechAiService.startBackendRecording(this.context(),
         (text: string): void => {
           this.isRecording = false;
@@ -330,7 +328,6 @@ export struct AiAssistantPage {
         return;
       }
 
-      // 后端录音启动失败，尝试降级到原生 ASR
       console.info('后端录音不可用，尝试原生 ASR');
       const nativeStarted: boolean = await speechAiService.startListening(
         (text: string, isFinal: boolean, isLast: boolean) => {
@@ -368,7 +365,6 @@ export struct AiAssistantPage {
         return;
       }
 
-      // 两种方式都不可用
       promptAction.showToast({ message: '当前设备不支持语音识别，可继续使用文字输入' });
     } catch (error) {
       this.isRecording = false;
@@ -384,7 +380,6 @@ export struct AiAssistantPage {
       return;
     }
 
-    // 正在朗读其他消息时，先停止再切到新消息
     if (this.speakingMessageId !== '') {
       speechAiService.stopSpeak();
     }

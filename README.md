@@ -27,6 +27,8 @@ distributedDataObject + UIAbility.onContinue
 
 客户端不会直接访问数据库。AI Agent 通过后端业务工具读取真实档案、课程、试卷、错题和报告数据，大模型主要负责意图理解和结果表达。
 
+代码按客户端页面/状态/服务/模型和后端 API/Service/AI Tool/数据访问分层，具体约定见[代码分层与注释规范](docs/CODE_STRUCTURE.md)。
+
 ## 已实现功能
 
 ### 学习业务
@@ -209,6 +211,247 @@ $env:DEVECO_SDK_HOME='C:\Program Files\Huawei\DevEco Studio\sdk'
   -p buildMode=debug --no-daemon
 ```
 
+## HarmonyOS 真机调试与后端联调
+
+本项目已使用 HarmonyOS 真机完成无线 HDC 连接、签名 HAP 安装和客户端运行。真机只运行 HarmonyOS 客户端，FastAPI、MySQL 和 AI 服务仍运行在开发电脑上：
+
+```text
+HarmonyOS 手机
+    │  同一 Wi-Fi 下的 HTTP 请求
+    ▼
+开发电脑上的 FastAPI
+    ├── MySQL
+    └── DeepSeek / Mock Provider
+```
+
+手机与电脑需要连接同一个 Wi-Fi。无线 HDC 地址用于调试连接，客户端 `API_BASE_URL` 使用的是电脑 IPv4，两者不能混用。
+
+### 1. 找到并启用 HDC 命令
+
+如果 PowerShell 提示“无法将 `hdc` 识别为 cmdlet、函数、脚本文件或可运行程序”，说明 HDC 所在目录没有加入 Windows Path。本机 DevEco Studio 的 HDC 路径为：
+
+```text
+C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe
+```
+
+可以直接使用完整路径：
+
+```powershell
+& 'C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe' list targets
+```
+
+也可以只为当前 PowerShell 临时添加 Path：
+
+```powershell
+$env:Path += ';C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains'
+hdc -v
+hdc list targets
+```
+
+关闭终端后临时 Path 会失效。长期使用时可将 `toolchains` 目录加入 Windows 用户环境变量 Path。
+
+### 2. 区分文件传输与 HDC 调试
+
+手机开启开发人员模式、USB 调试和文件传输后，Windows 资源管理器能够看到手机，但 `hdc list targets` 仍可能显示：
+
+```text
+[Empty]
+```
+
+这是因为 MTP 文件传输和 HDC 调试是两个不同的 USB 接口。电脑能够传输文件，只能说明数据线和 MTP 基本正常，不能证明 HDC 通道已经建立。
+
+### 3. 检查并修复 HDC Interface 驱动
+
+使用 PowerShell 查看相关设备：
+
+```powershell
+Get-PnpDevice -PresentOnly |
+  Where-Object {
+    $_.FriendlyName -match 'HDC|NDIS|Harmony|Huawei|ADB'
+  } |
+  Format-Table Status, Class, FriendlyName, InstanceId -AutoSize
+```
+
+本次调试曾出现 `Error  HDC Interface`，说明 Windows 已发现 HDC 接口，但驱动异常。处理步骤如下：
+
+1. 打开 Windows“设备管理器”。
+2. 选择“查看 → 显示隐藏的设备”。
+3. 找到带黄色感叹号的 `HDC Interface`。
+4. 右键选择“更新驱动程序”。
+5. 选择“浏览我的电脑以查找驱动程序”。
+6. 选择“让我从计算机上的可用驱动程序列表中选取”。
+7. 硬件类型选择“通用串行总线设备”。
+8. 制造商和型号均选择“WinUSB 设备”。
+9. 确认安装，并重新插拔设备。
+
+不要为 HDC Interface 选择 Belkin USB 轻松传送电缆、USB 轻松传送电缆或 MTP 便携设备驱动。修复后可再次检查：
+
+```powershell
+Get-PnpDevice -PresentOnly |
+  Where-Object { $_.FriendlyName -match 'HDC' } |
+  Format-Table Status, Class, FriendlyName, InstanceId -AutoSize
+```
+
+正常状态应类似：
+
+```text
+OK  USBDevice  HDC Interface
+```
+
+### 4. 重启 HDC 服务并判断 USB 结果
+
+```powershell
+$hdc = 'C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe'
+
+& $hdc -v
+& $hdc checkserver
+& $hdc kill
+& $hdc start -r
+& $hdc list targets -v
+```
+
+本次客户端和服务端版本均为 `Ver: 3.2.0d`。如果列表中只有 `COM3 UART Ready`、`COM4 UART Ready` 等内容，它们是电脑串口，不是 HarmonyOS 手机；真正的 USB 调试设备类型应显示为 USB。
+
+本次 USB HDC 通道最终没有稳定建立，因此改用无线调试完成真机连接。
+
+### 5. 通过无线 HDC 连接真机
+
+1. 确保手机和电脑连接同一个 Wi-Fi。
+2. 在手机开发者选项中开启“无线调试”。
+3. 记录页面显示的 IP 地址和端口。
+4. 在 PowerShell 中连接该地址：
+
+```powershell
+$hdc = 'C:\Program Files\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe'
+
+& $hdc start -r
+& $hdc tconn 10.130.39.188:33537
+& $hdc list targets -v
+```
+
+`10.130.39.188:33537` 是本次真机调试的实际示例，使用时必须替换为手机无线调试页面当前显示的地址。连接成功会返回：
+
+```text
+Connect OK
+10.130.39.188:33537  TCP  Connected  localhost  hdc
+```
+
+其中 `TCP` 表示无线连接，`Connected` 表示连接成功；设备名显示 `localhost` 属于手机返回信息，不是错误。此时可以在 DevEco Studio 右上角设备列表中选择对应 IP。
+
+### 6. 配置真机调试签名
+
+真机运行 HAP 需要调试签名。在 DevEco Studio 中进入：
+
+```text
+File → Project Structure → Signing Configs
+```
+
+为 `default` 产品配置自动签名，然后选择 `entry` 模块和已连接的真机，点击 Run 或按 `Shift + F10`。DevEco Studio 会完成编译、签名、安装和启动。
+
+仓库中的 `build-profile.json5` 保持 `"signingConfigs": []` 是正常且安全的：证书、Profile、密钥库、本机绝对路径和密码都不应提交到 GitHub。
+
+如果命令行签名提示 `Algorithm HmacPBESHA256 not available`，说明默认 Java 版本过旧。可在当前 PowerShell 临时使用 DevEco Studio 自带 JBR：
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Huawei\DevEco Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+$env:DEVECO_SDK_HOME='C:\Program Files\Huawei\DevEco Studio\sdk'
+```
+
+重新构建前仍需在本机配置有效签名材料，不要把签名配置提交到仓库。
+
+### 7. 启动电脑端后端服务
+
+真机能显示登录页，只说明客户端已经安装。登录、课程、试卷、学生档案、学习计划、AI 助手、语音降级和 AI 组卷仍依赖电脑上的 MySQL 与 FastAPI。
+
+启动 MySQL 后，在项目根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn server.main:app `
+  --host 0.0.0.0 --port 8000 --reload
+```
+
+必须使用 `--host 0.0.0.0`，否则 FastAPI 只能被电脑本机访问。
+
+### 8. 配置客户端后端地址
+
+执行 `ipconfig`，找到电脑当前 Wi-Fi 对应的 IPv4 地址，然后修改：
+
+```text
+entry/src/main/ets/common/AppConfig.ets
+```
+
+示例：
+
+```typescript
+export class AppConfig {
+  static readonly API_BASE_URL: string =
+    'http://电脑当前IPv4:8000/api';
+
+  static readonly USE_MOCK_DATA: boolean = false;
+  static readonly ENABLE_SSE: boolean = true;
+  static readonly REQUEST_TIMEOUT_MS: number = 10000;
+}
+```
+
+注意：
+
+- 这里填写电脑 IPv4，不是手机的无线调试 IP。
+- 地址必须保留 `/api`。
+- 修改后需要重新 Run，将新客户端安装到真机。
+- 更换 Wi-Fi 后电脑 IPv4 可能变化，需要重新检查。
+
+### 9. 检查真机能否访问后端
+
+先在电脑浏览器访问：
+
+```text
+http://127.0.0.1:8000/api/health
+```
+
+再在手机浏览器访问：
+
+```text
+http://电脑IPv4:8000/api/health
+```
+
+电脑可以访问但手机不能访问时，检查是否处于同一 Wi-Fi、FastAPI 是否监听 `0.0.0.0`、公共 Wi-Fi 是否启用了设备隔离，以及 Windows 防火墙是否允许 TCP 8000 端口。可在管理员 PowerShell 中按需添加规则：
+
+```powershell
+netsh advfirewall firewall add rule name="SmartStudy FastAPI 8000" `
+  dir=in action=allow protocol=TCP localport=8000
+```
+
+### 10. 推荐的答辩演示启动顺序
+
+1. 电脑和手机连接同一个 Wi-Fi。
+2. 手机开启无线调试。
+3. 使用 `hdc tconn` 连接手机。
+4. 使用 `hdc list targets -v` 确认状态为 `TCP Connected`。
+5. 启动 MySQL。
+6. 使用 `0.0.0.0:8000` 启动 FastAPI。
+7. 使用 `ipconfig` 检查电脑当前 IPv4。
+8. 确认 `AppConfig.ets` 填写电脑当前 IPv4。
+9. 使用手机浏览器访问 `/api/health`。
+10. 在 DevEco Studio 中选择真机并运行 `entry`。
+11. 依次测试登录、课程、AI 文字问答、语音功能和 AI 组卷。
+
+### 11. 故障排查
+
+| 现象 | 原因 | 处理方法 |
+| --- | --- | --- |
+| `hdc` 命令无法识别 | HDC 未加入 Path | 使用完整路径或配置临时/用户环境变量 |
+| `hdc list targets` 显示 `[Empty]` | HDC 驱动或调试通道异常 | 检查手机调试选项和 Windows `HDC Interface` |
+| `HDC Interface` 状态为 Error | WinUSB 驱动异常 | 在设备管理器中为该接口安装 WinUSB 设备驱动 |
+| 只出现 COM3、COM4 等 UART | 识别到电脑串口，不是真机 | 不连接 COM 端口，改用正常 USB HDC 或无线调试 |
+| `tconn` 返回 `Connect OK` | 无线 HDC 已连接 | 再用 `list targets -v` 确认 `TCP Connected` |
+| 真机显示登录页但无法登录 | FastAPI 或 MySQL 未启动 | 启动数据库和监听 `0.0.0.0:8000` 的后端 |
+| 电脑能访问后端但手机不能 | 防火墙、设备隔离或网络不同 | 开放 TCP 8000 并确认同一 Wi-Fi |
+| 修改后端 IP 后仍访问旧地址 | 真机仍安装旧客户端 | 重新 Run、构建并覆盖安装应用 |
+| 更换网络后无法访问后端 | 电脑 IPv4 已变化 | 重新执行 `ipconfig` 并更新 `AppConfig.ets` |
+| 签名报 `HmacPBESHA256 not available` | 命令行使用了过旧 Java | 临时切换到 DevEco Studio 自带 JBR 后重新构建 |
+| 安装后仍显示旧应用图标 | 桌面缓存或仍使用旧 HAP | 确认新 HAP 已安装，刷新桌面，必要时卸载旧应用后重装 |
+
 ## 分布式能力验收
 
 跨设备学习接续默认关闭。登录后进入“我的 → 设置 → 跨设备学习接续（实验）”主动开启。
@@ -259,9 +502,11 @@ $env:DEVECO_SDK_HOME='C:\Program Files\Huawei\DevEco Studio\sdk'
 - [AI 运行说明](server/README_AI.md)
 - [接口说明](docs/API.md)
 - [AI 架构设计](docs/AI_DESIGN.md)
+- [代码分层与注释规范](docs/CODE_STRUCTURE.md)
 - [分布式学习接续设计](docs/DISTRIBUTED_DESIGN.md)
+- [分布式部署与双设备验收](docs/DISTRIBUTED_DEPLOYMENT.md)
 - [开发日志](docs/DEVELOPMENT_LOG.md)
 - [测试记录](docs/TEST_REPORT.md)
-- [提示词设计](docs/PROMPTS.md)
+- [AI 提示词完整记录](docs/PROMPTS.md)
 - [踩坑复盘](docs/PITFALLS.md)
 - [答辩 PPT 素材](docs/PPT_OUTLINE.md)

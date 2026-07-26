@@ -141,6 +141,7 @@ class AIOrchestrator:
     async def _register_tools(self, session: ChatSession, request_id: str, student) -> ToolRegistry:
         context = ToolContext(self.db, self.user, student, session.id, request_id)
         registry = ToolRegistry(self.db, session.id, request_id, context)
+        # Agent 只能通过白名单工具访问业务数据，模型本身不直接查询或修改数据库。
         for tool in (
             StudentProfileTool(),
             CourseRecommendTool(),
@@ -262,6 +263,7 @@ class AIOrchestrator:
             AIRequest.session_id == session.id,
             AIRequest.client_message_id == client_id,
         ))
+        # client_message_id 同时覆盖普通请求与 SSE 降级，重试不得重复创建订单或对话记录。
         if existing and existing.status == "completed" and existing.response_json:
             return existing.response_json
 
@@ -464,6 +466,3 @@ class AIOrchestrator:
         prepared.request.response_json = response
         await self.db.commit()
         yield "done", response
-
-
-ChatOrchestrator = AIOrchestrator

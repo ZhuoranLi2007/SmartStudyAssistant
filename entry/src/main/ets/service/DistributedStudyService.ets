@@ -99,6 +99,7 @@ class DistributedStudyCoordinator {
     snapshot.updatedAt = timestamp;
     this.latestSnapshot = snapshot;
     this.lastPublishedAt = timestamp;
+    // updatedAt 最后写入，接收端以它作为整批字段已更新完成的提交标记。
     this.dataObject['schemaVersion'] = snapshot.schemaVersion;
     this.dataObject['routeName'] = snapshot.routeName;
     this.dataObject['taskId'] = snapshot.taskId;
@@ -158,6 +159,7 @@ class DistributedStudyCoordinator {
     snapshot.filter = AppStorage.get<string>(AppStorageKeys.DISTRIBUTED_PENDING_FILTER) || 'WEEK';
     snapshot.updatedAt = AppStorage.get<number>(AppStorageKeys.DISTRIBUTED_PENDING_UPDATED_AT) || 0;
     this.clearPendingSnapshot();
+    // 接续参数来自系统 Want，但仍必须匹配当前登录账号，避免串用上一账号的页面状态。
     if (pendingSessionId !== expectedSessionId) return undefined;
     const normalized: DistributedStudySnapshot = DistributedStudySnapshotCodec.normalize(snapshot);
     return DistributedStudySnapshotCodec.isUsable(normalized) ? normalized : undefined;
