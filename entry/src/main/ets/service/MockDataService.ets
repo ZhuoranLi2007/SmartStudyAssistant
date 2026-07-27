@@ -202,7 +202,14 @@ export class MockDataService {
     return MockDataService.tasks.slice();
   }
 
-  static addTask(name: string, taskType: string, subject: string, difficulty: string, targetId: number = 1): StudyTask {
+  static addTask(
+    name: string,
+    taskType: string,
+    subject: string,
+    difficulty: string,
+    targetId: number = 1,
+    scheduledDate: string = ''
+  ): StudyTask {
     const task: StudyTask = {
       id: Date.now(),
       studentProfileId: 1,
@@ -212,7 +219,7 @@ export class MockDataService {
       subject: subject,
       difficulty: difficulty,
       status: TaskStatus.NOT_STARTED,
-      scheduledDate: MockDataService.isoDate(1),
+      scheduledDate: scheduledDate || MockDataService.isoDate(1),
       durationMinutes: taskType === '错题' ? 15 : 40,
       knowledgePoint: taskType === '试卷' ? '专项训练' : taskType === '错题' ? '错题复测' : '课程学习',
       sourceSessionId: '',

@@ -11,6 +11,7 @@ import { TypingIndicator } from './TypingIndicator';
 export struct ChatMessageBubble {
   @Prop message: ChatMessage;
   @Prop speakingMessageId: string = '';
+  @Prop studentProfileId: number = 0;
   onRead: (content: string, messageId: string) => void = (_content: string, _messageId: string): void => {};
   onCopy: (content: string) => void = (_content: string): void => {};
   onRetry: (message: ChatMessage) => void = (_message: ChatMessage): void => {};
@@ -25,7 +26,7 @@ export struct ChatMessageBubble {
           } else if (card.type === AiCardType.PAPER) {
             PaperRecommendationCard({ card: card })
           } else if (card.type === AiCardType.STUDY_PLAN) {
-            StudyPlanCard({ card: card })
+            StudyPlanCard({ card: card, studentProfileId: this.studentProfileId })
           }
         }, (card: AiCard, index: number) => `${card.type}_${card.id}_${index}`)
       }.width('100%')

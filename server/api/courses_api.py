@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
-from server.models import Course, CourseEnrollment, User
+from server.models import Course, CourseEnrollment, StudyTask, User
 from server.schemas import RecommendationRequest
 from server.services.access_service import ensure_student_access
 from server.services.learning_service import my_courses
@@ -75,6 +75,14 @@ async def complete_course(
     if enrollment.total_lessons > 0:
         enrollment.completed_lessons = enrollment.total_lessons
     enrollment.next_lesson = "课程已完成"
+    task = await db.scalar(select(StudyTask).where(
+        StudyTask.student_profile_id == student_profile_id,
+        StudyTask.task_type == "课程",
+        StudyTask.target_id == course_id,
+        StudyTask.status != "已完成",
+    ).order_by(StudyTask.created_at.desc()))
+    if task is not None:
+        task.status = "已完成"
     await db.commit()
     return ok({
         "enrollmentId": enrollment.id,

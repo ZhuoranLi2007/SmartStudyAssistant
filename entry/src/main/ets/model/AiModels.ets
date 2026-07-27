@@ -76,6 +76,7 @@ export interface AiPlanTask {
   durationMinutes: number;
   courseId?: number;
   paperId?: number;
+  wrongQuestionId?: number;
   knowledgePoint: string;
   status: string;
 }

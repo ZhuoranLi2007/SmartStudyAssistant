@@ -29,7 +29,7 @@ export struct ChatInputBar {
         .backgroundColor('#356DF3').enabled(!this.isSending && this.text.trim().length > 0)
         .onClick(() => this.onSend())
     }
-    .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+    .padding({ left: 12, right: 12, top: 4, bottom: 9 })
     .width('100%').backgroundColor(Color.White)
     .border({ width: { top: 1 }, color: '#E9EDF5' })
   }

@@ -222,15 +222,16 @@ export struct StudyPlanPage {
   }
 
   private openTask(task: StudyTask): void {
-    if (task.targetId <= 0) {
-      promptAction.showToast({ message: '任务关联内容暂不可用' });
-      return;
-    }
     if (task.taskType === '错题') {
       const wrongParam: WrongQuestionTrainingRouteParam = new WrongQuestionTrainingRouteParam();
-      wrongParam.wrongQuestionId = task.targetId;
+      wrongParam.wrongQuestionId = task.targetId > 0 ? task.targetId : 0;
       wrongParam.taskId = task.id;
+      wrongParam.allMode = true;
       this.appPathStack.pushPathByName(AppRoutes.WRONG_QUESTION_TRAINING, wrongParam);
+      return;
+    }
+    if (task.targetId <= 0) {
+      promptAction.showToast({ message: '任务关联内容暂不可用' });
       return;
     }
     const param: IdRouteParam = new IdRouteParam();
@@ -256,6 +257,7 @@ export struct StudyPlanPage {
         const param: WrongQuestionTrainingRouteParam = new WrongQuestionTrainingRouteParam();
         param.wrongQuestionId = task.targetId;
         param.taskId = task.id;
+        param.allMode = true;
         this.appPathStack.pushPathByName(AppRoutes.WRONG_QUESTION_TRAINING, param);
       } else {
         this.openTask(task);

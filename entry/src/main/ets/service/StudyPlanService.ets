@@ -5,7 +5,7 @@ import { RecommendedPaper, RecommendedWrongQuestion } from '../model/StudyPlanMo
 import { ProfileMockData } from '../data/ProfileMockData';
 import { HttpClient } from './HttpClient';
 import { MockDataService } from './MockDataService';
-import { StudyTaskRequest, TaskStatusRequest } from './NetworkDtos';
+import { AiTaskRequest, StudyTaskRequest, TaskStatusRequest } from './NetworkDtos';
 
 export class StudyPlanService {
   private static isProtectedError(error: Object): boolean {
@@ -72,23 +72,43 @@ export class StudyPlanService {
     }
   }
 
-  static async addTask(studentProfileId: number, taskType: string, targetId: number): Promise<StudyTask> {
+  static async addAiTask(
+    studentProfileId: number,
+    title: string,
+    date: string,
+    durationMinutes: number,
+    knowledgePoint: string
+  ): Promise<StudyTask> {
+    if (AppConfig.USE_MOCK_DATA) {
+      return MockDataService.addTask(title, 'AI建议', knowledgePoint, 'AI生成', 0, date);
+    }
+    const request = new AiTaskRequest();
+    request.student_profile_id = studentProfileId;
+    request.title = title;
+    request.date = date;
+    request.duration_minutes = durationMinutes;
+    request.knowledge_point = knowledgePoint;
+    return (await HttpClient.post<StudyTask>('/study-plans/ai-task', request)).data;
+  }
+
+  static async addTask(studentProfileId: number, taskType: string, targetId: number, date: string = ''): Promise<StudyTask> {
     if (AppConfig.USE_MOCK_DATA) {
       if (taskType === '错题') {
         const wrong = ProfileMockData.getWrongQuestionTraining(targetId);
-        return MockDataService.addTask(`${wrong.knowledgePoint}错题复测`, taskType, wrong.subject, '错题巩固', targetId);
+        return MockDataService.addTask(`${wrong.knowledgePoint}错题复测`, taskType, wrong.subject, '错题巩固', targetId, date);
       }
       if (taskType === '试卷') {
         const paper = MockDataService.getPaper(targetId);
-        return MockDataService.addTask(paper.name, taskType, paper.subject, paper.difficulty, targetId);
+        return MockDataService.addTask(paper.name, taskType, paper.subject, paper.difficulty, targetId, date);
       }
       const course = MockDataService.getCourse(targetId);
-      return MockDataService.addTask(course.name, taskType, course.subject, course.difficulty, targetId);
+      return MockDataService.addTask(course.name, taskType, course.subject, course.difficulty, targetId, date);
     }
     const request = new StudyTaskRequest();
     request.student_profile_id = studentProfileId;
     request.task_type = taskType;
     request.target_id = targetId;
+    request.date = date;
     return (await HttpClient.post<StudyTask>('/study-plans', request)).data;
   }
 

@@ -55,6 +55,7 @@ export class OnlinePracticeRouteParam {
 export class WrongQuestionTrainingRouteParam {
   wrongQuestionId: number = 0;
   taskId: number = 0;
+  allMode: boolean = false;
 }
 
 export class DistributedStudyRouteParam {

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.database import get_db
 from server.models import Course, Paper, StudentSubjectProfile, StudyTask, User, WrongQuestion
-from server.schemas import StudyTaskCreate, TaskStatusUpdate
+from server.schemas import AiTaskCreate, StudyTaskCreate, TaskStatusUpdate
 from server.services.access_service import ensure_student_access
 from server.services.ai_paper_service import _display_name
 from server.utils.responses import ok
@@ -143,12 +143,15 @@ async def add_task(payload: StudyTaskCreate, db: AsyncSession = Depends(get_db),
     elif payload.task_type == "试卷":
         target = await db.get(Paper, payload.target_id)
     else:
-        target = await db.get(WrongQuestion, payload.target_id)
-        if target is not None and target.student_profile_id != payload.student_profile_id:
+        if payload.target_id > 0:
+            target = await db.get(WrongQuestion, payload.target_id)
+            if target is not None and target.student_profile_id != payload.student_profile_id:
+                target = None
+            if target is not None and target.mastered:
+                raise HTTPException(status_code=409, detail="该错题已经掌握，无需重复安排")
+        else:
             target = None
-        if target is not None and target.mastered:
-            raise HTTPException(status_code=409, detail="该错题已经掌握，无需重复安排")
-    if target is None:
+    if target is None and not (payload.task_type == "错题" and payload.target_id == 0):
         raise HTTPException(status_code=404, detail="课程、试卷或错题不存在")
     duplicate = await db.scalar(select(StudyTask).where(
         StudyTask.student_profile_id == payload.student_profile_id,
@@ -157,13 +160,29 @@ async def add_task(payload: StudyTaskCreate, db: AsyncSession = Depends(get_db),
     ))
     if duplicate is not None:
         raise HTTPException(status_code=409, detail="该学习内容已在学习计划中")
-    scheduled_date = await next_available_date(db, payload.student_profile_id)
+    if payload.date:
+        try:
+            scheduled_date = date.fromisoformat(payload.date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="日期格式错误，应为 YYYY-MM-DD") from exc
+    else:
+        scheduled_date = await next_available_date(db, payload.student_profile_id)
     if payload.task_type == "错题":
-        name = f"{target.knowledge_point}错题复测"
-        subject = target.subject
-        difficulty = "错题巩固"
-        duration_minutes = 15
-        knowledge_point = target.knowledge_point
+        if target is not None:
+            name = f"{target.knowledge_point}错题复测"
+            subject = target.subject
+            difficulty = "错题巩固"
+            duration_minutes = 15
+            knowledge_point = target.knowledge_point
+        else:
+            subject_profile = await db.scalar(select(StudentSubjectProfile).where(
+                StudentSubjectProfile.student_profile_id == payload.student_profile_id,
+            ).order_by(StudentSubjectProfile.id))
+            subject = subject_profile.subject if subject_profile is not None else "综合"
+            name = "错题复测"
+            difficulty = "错题巩固"
+            duration_minutes = 15
+            knowledge_point = "错题复盘"
     else:
         knowledge_points = target.knowledge_points or []
         name = _display_name(target.name) if isinstance(target, Paper) and target.is_ai_generated else target.name
@@ -176,6 +195,35 @@ async def add_task(payload: StudyTaskCreate, db: AsyncSession = Depends(get_db),
                     subject=subject, difficulty=difficulty,
                     scheduled_date=scheduled_date, duration_minutes=duration_minutes,
                     knowledge_point=knowledge_point)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return ok(task_data(row), "已加入学习计划")
+
+
+@router.post("/ai-task")
+async def add_ai_task(payload: AiTaskCreate, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    await ensure_student_access(db, user, payload.student_profile_id)
+    try:
+        scheduled_date = date.fromisoformat(payload.date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="日期格式错误，应为 YYYY-MM-DD") from exc
+    subject_profile = await db.scalar(select(StudentSubjectProfile).where(
+        StudentSubjectProfile.student_profile_id == payload.student_profile_id,
+    ).order_by(StudentSubjectProfile.id))
+    row = StudyTask(
+        student_profile_id=payload.student_profile_id,
+        creator_user_id=user.id,
+        task_type="AI建议",
+        target_id=0,
+        name=payload.title,
+        subject=subject_profile.subject if subject_profile is not None else "综合",
+        difficulty="AI生成",
+        status="未开始",
+        scheduled_date=scheduled_date,
+        duration_minutes=payload.duration_minutes,
+        knowledge_point=payload.knowledge_point,
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)

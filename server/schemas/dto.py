@@ -61,6 +61,15 @@ class StudyTaskCreate(BaseModel):
     student_profile_id: int
     task_type: Literal["课程", "试卷", "错题"]
     target_id: int
+    date: str = Field(default="", max_length=10)
+
+
+class AiTaskCreate(BaseModel):
+    student_profile_id: int
+    title: str = Field(min_length=1, max_length=150)
+    date: str = Field(min_length=1, max_length=10)
+    duration_minutes: int = Field(ge=1, le=1440)
+    knowledge_point: str = Field(default="", max_length=100)
 
 
 class TaskStatusUpdate(BaseModel):

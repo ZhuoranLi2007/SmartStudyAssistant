@@ -21,6 +21,44 @@ from server.models import (
 from server.services.access_service import ensure_student_access
 
 
+FOUNDATION = "基础巩固型"
+IMPROVEMENT = "中等提升型"
+EXTENSION = "拔高拓展型"
+
+
+def _calculate_level(score: float) -> str:
+    if score < 60:
+        return FOUNDATION
+    if score < 80:
+        return IMPROVEMENT
+    return EXTENSION
+
+
+def _match_by_weak_points(items: list, weak_points: list[str], limit: int | None = None):
+    """按薄弱知识点顺序匹配，每个知识点优先返回一项；未传 limit 时返回所有匹配项。"""
+    matched = []
+    for point in weak_points:
+        for item in items:
+            if point in (getattr(item, "knowledge_points", None) or []) and item not in matched:
+                matched.append(item)
+                break
+        if limit is not None and len(matched) >= limit:
+            break
+    return matched
+
+
+def _prefer_level(items: list, level: str, points: list[str] | None = None, limit: int | None = None):
+    """资源不足时把知识点和学习层次降为排序偏好；未传 limit 时返回所有项。"""
+    target_points = points or []
+    result = sorted(items, key=lambda item: (
+        bool(target_points) and not any(point in (item.knowledge_points or []) for point in target_points),
+        getattr(item, "level", None) != level
+        and getattr(item, "suitable_course_level", None) != level,
+        item.id,
+    ))
+    return result[:limit] if limit is not None else result
+
+
 async def my_courses(db: AsyncSession, user: User, student_profile_id: int | None = None) -> list[dict]:
     statement = select(CourseEnrollment, Course).join(Course, Course.id == CourseEnrollment.course_id)
     if student_profile_id:
@@ -429,35 +467,156 @@ async def generate_week_plan(db: AsyncSession, user: User, student_profile_id: i
     subject = subject_profile.subject
     weak_points = subject_profile.weak_points or [f"{subject}基础知识"]
     score = subject_profile.recent_score
-    level_text = "基础巩固" if score < 60 else "同步提升" if score < 85 else "拓展提高"
+    level = _calculate_level(score)
     # 每日时长由周预算均分，并限制在适合单次学习的 20～90 分钟。
     duration = max(20, min(90, profile.weekly_study_minutes // 7))
 
-    primary_point = weak_points[0]
-    secondary_point = weak_points[1] if len(weak_points) > 1 else primary_point
-    task_templates = [
-        ("知识回顾", f"{primary_point}知识回顾", primary_point),
-        ("专项练习", f"{primary_point}专项练习", primary_point),
-        ("知识梳理", f"{secondary_point}易错点梳理", secondary_point),
-        ("巩固练习", f"{secondary_point}巩固练习", secondary_point),
-        ("综合训练", f"{subject}{level_text}综合训练", subject),
-        ("错题复盘", f"{primary_point}错题复盘与自测", primary_point),
-        ("周总结", f"{subject}本周总结与下周目标", subject),
-    ]
-    tasks: list[dict] = []
-    for index in range(7):
-        task_type, title, knowledge_point = task_templates[index]
-        tasks.append({
-            "id": -(index + 1),
-            "date": (date.today() + timedelta(days=index)).isoformat(),
-            "title": title,
-            "taskType": task_type,
-            "durationMinutes": duration,
+    exact_courses = list((await db.scalars(select(Course).where(
+        Course.grade == profile.grade, Course.subject == subject,
+        Course.level == level, Course.is_active.is_(True)
+    ).order_by(Course.id))).all())
+    course_rows = _match_by_weak_points(exact_courses, weak_points) if weak_points else exact_courses
+    if not course_rows:
+        same_grade_courses = list((await db.scalars(select(Course).where(
+            Course.grade == profile.grade,
+            Course.subject == subject,
+            Course.is_active.is_(True),
+        ).order_by(Course.id))).all())
+        course_rows = _prefer_level(same_grade_courses, level, weak_points)
+    if not course_rows:
+        same_subject_courses = list((await db.scalars(select(Course).where(
+            Course.subject == subject,
+            Course.is_active.is_(True),
+        ).order_by(Course.id))).all())
+        course_rows = _prefer_level(same_subject_courses, level, weak_points)
+
+    exact_papers = list((await db.scalars(select(Paper).where(
+        Paper.grade == profile.grade, Paper.subject == subject,
+        Paper.suitable_course_level == level, Paper.is_active.is_(True),
+        Paper.is_ai_generated.is_(False)
+    ).order_by(Paper.id))).all())
+    paper_rows = _match_by_weak_points(exact_papers, weak_points) if weak_points else exact_papers
+    if not paper_rows:
+        same_grade_papers = list((await db.scalars(select(Paper).where(
+            Paper.grade == profile.grade,
+            Paper.subject == subject,
+            Paper.is_active.is_(True),
+            Paper.is_ai_generated.is_(False),
+        ).order_by(Paper.id))).all())
+        paper_rows = _prefer_level(same_grade_papers, level, weak_points)
+    if not paper_rows:
+        same_subject_papers = list((await db.scalars(select(Paper).where(
+            Paper.subject == subject,
+            Paper.is_active.is_(True),
+            Paper.is_ai_generated.is_(False),
+        ).order_by(Paper.id))).all())
+        paper_rows = _prefer_level(same_subject_papers, level, weak_points)
+
+    # 错题本里只要有错题就安排复测，不区分是否已掌握
+    wrong_questions = list((await db.scalars(select(WrongQuestion).where(
+        WrongQuestion.student_profile_id == student_profile_id,
+    ).order_by(WrongQuestion.wrong_count.desc(), WrongQuestion.updated_at.desc()))).all())
+
+    course_index = 0
+    paper_index = 0
+    wrong_added = False
+
+    def next_course() -> Course | None:
+        nonlocal course_index
+        if course_index >= len(course_rows):
+            return None
+        course = course_rows[course_index]
+        course_index += 1
+        return course
+
+    def next_paper() -> Paper | None:
+        nonlocal paper_index
+        if paper_index >= len(paper_rows):
+            return None
+        paper = paper_rows[paper_index]
+        paper_index += 1
+        return paper
+
+    def build_course_task(day_index: int) -> dict | None:
+        course = next_course()
+        if course is None:
+            return None
+        return {
+            "id": -(day_index + 1),
+            "date": (date.today() + timedelta(days=day_index)).isoformat(),
+            "title": course.name,
+            "taskType": "课程",
+            "durationMinutes": min(60, duration + 15),
+            "courseId": course.id,
+            "paperId": None,
+            "wrongQuestionId": None,
+            "knowledgePoint": (course.knowledge_points or [subject])[0],
+            "status": "未开始",
+        }
+
+    def build_paper_task(day_index: int) -> dict | None:
+        paper = next_paper()
+        if paper is None:
+            return None
+        return {
+            "id": -(day_index + 1),
+            "date": (date.today() + timedelta(days=day_index)).isoformat(),
+            "title": paper.name,
+            "taskType": "试卷",
+            "durationMinutes": 40,
+            "courseId": None,
+            "paperId": paper.id,
+            "wrongQuestionId": None,
+            "knowledgePoint": (paper.knowledge_points or [subject])[0],
+            "status": "未开始",
+        }
+
+    def build_wrong_task(day_index: int) -> dict | None:
+        if not wrong_questions:
+            return None
+        return {
+            "id": -(day_index + 1),
+            "date": (date.today() + timedelta(days=day_index)).isoformat(),
+            "title": "错题复测",
+            "taskType": "错题",
+            "durationMinutes": 15 * len(wrong_questions),
             "courseId": None,
             "paperId": None,
-            "knowledgePoint": knowledge_point,
+            "wrongQuestionId": 0,
+            "knowledgePoint": "错题复盘",
             "status": "未开始",
-        })
+        }
+
+    # 按真实日期连续 7 天，顺序填充：课程、试卷、课程、试卷、错题复测、课程、试卷。
+    # 错题复测只出现一次，包含所有未掌握错题；后续若再次轮到错题则跳过。
+    base_types = ["课程", "试卷", "课程", "试卷", "错题", "课程", "试卷"]
+
+    def build_task(task_type: str, day_index: int) -> dict | None:
+        nonlocal wrong_added
+        if task_type == "课程":
+            return build_course_task(day_index)
+        if task_type == "试卷":
+            return build_paper_task(day_index)
+        if wrong_added:
+            return None
+        task = build_wrong_task(day_index)
+        if task is not None:
+            wrong_added = True
+        return task
+
+    tasks: list[dict] = []
+    for index in range(7):
+        task = build_task(base_types[index], index)
+        if task is None:
+            for fallback_type in ["课程", "试卷"]:
+                task = build_task(fallback_type, index)
+                if task is not None:
+                    break
+        if task is not None:
+            tasks.append(task)
+
+    if not tasks:
+        raise HTTPException(status_code=404, detail="未找到匹配的学习资源，请完善课程或试卷数据")
 
     # 负任务 ID 和 planId=0 明确表示预览，避免前端把 AI 建议误认为已落库任务。
     return {

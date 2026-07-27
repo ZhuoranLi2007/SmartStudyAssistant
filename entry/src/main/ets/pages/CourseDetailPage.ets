@@ -39,6 +39,8 @@ export struct CourseDetailPage {
   @State enrollBusy: boolean = false;
   @State isAdding: boolean = false;
   @State isAdded: boolean = false;
+  @State isCompleted: boolean = false;
+  @State completeBusy: boolean = false;
   private readonly pageKey: string = 'CourseDetailPage';
 
   aboutToAppear(): void {
@@ -107,11 +109,16 @@ export struct CourseDetailPage {
   private async restorePlanState(): Promise<void> {
     if (this.studentProfileId <= 0) {
       this.isAdded = false;
+      this.isCompleted = false;
       return;
     }
     try {
       const result: DataLoadResult<StudyTask[]> = await StudyPlanService.getTasks(this.studentProfileId);
-      this.isAdded = result.data.some((task: StudyTask) => task.taskType === '课程' && task.targetId === this.courseId);
+      const task: StudyTask | undefined = result.data.find(
+        (item: StudyTask) => item.taskType === '课程' && item.targetId === this.courseId
+      );
+      this.isAdded = task !== undefined;
+      this.isCompleted = task !== undefined && task.status === '已完成';
     } catch (error) {
       console.warn(`检查学习计划状态失败: ${JSON.stringify(error)}`);
     }
@@ -216,6 +223,32 @@ export struct CourseDetailPage {
     }
   }
 
+  private async completeCourse(): Promise<void> {
+    if (this.completeBusy || this.isCompleted || !this.isEnrolled) return;
+    if (this.studentProfileId <= 0) {
+      promptAction.showToast({ message: '请先登录并完成注册' });
+      return;
+    }
+    this.completeBusy = true;
+    try {
+      await CourseService.complete(this.detail.course.id);
+      this.isCompleted = true;
+      DistributedPageService.publish(DistributedEventType.COURSE_PROGRESS_UPDATED,
+        DistributedEntityType.COURSE, this.courseId, '', this.studentProfileId, AppRoutes.COURSE_DETAIL);
+      DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
+        DistributedEntityType.STUDY_TASK, 0, '', this.studentProfileId, AppRoutes.COURSE_DETAIL);
+      DistributedPageService.publish(DistributedEventType.STUDY_PLAN_UPDATED,
+        DistributedEntityType.STUDY_PLAN, 0, '', this.studentProfileId);
+      DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
+        DistributedEntityType.HOME, this.studentProfileId);
+      promptAction.showToast({ message: '课程已标记为完成' });
+    } catch (error) {
+      promptAction.showToast({ message: '标记完成失败，请稍后重试' });
+    } finally {
+      this.completeBusy = false;
+    }
+  }
+
   build() {
     NavDestination() {
       Column() {
@@ -252,9 +285,12 @@ export struct CourseDetailPage {
             enrollBusy: this.enrollBusy,
             isAdding: this.isAdding,
             isAdded: this.isAdded,
+            isCompleted: this.isCompleted,
+            completeBusy: this.completeBusy,
             onToggleFavorite: () => void this.toggleFavorite(),
             onEnroll: () => void this.enrollCourse(),
-            onAddPlan: () => void this.addTask()
+            onAddPlan: () => void this.addTask(),
+            onComplete: () => void this.completeCourse()
           })
         }
       }.width('100%').height('100%').backgroundColor('#F2F4F7')

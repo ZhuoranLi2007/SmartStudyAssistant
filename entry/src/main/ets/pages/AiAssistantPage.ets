@@ -649,68 +649,68 @@ export struct AiAssistantPage {
                 ChatMessageBubble({
                   message: message,
                   speakingMessageId: this.speakingMessageId,
+                  studentProfileId: this.studentProfileId,
                   onRead: (content: string, messageId: string): void => { void this.readMessage(content, messageId); },
                   onCopy: (content: string): void => { void this.copyAssistantContent(content); },
                   onRetry: (failed: ChatMessage): void => { void this.sendQuestion(failed.retryQuestion, failed); }
                 })
 
-                if (index === 0) {
-                  Column({ space: 8 }) {
-                    ForEach(ChatViewModel.QUICK_QUESTIONS, (item: QuickQuestion) => {
-                      Row() {
-                        SuggestionChip({
-                          item: item,
-                          disabled: this.isLoading || this.isRestoring,
-                          onSelect: (question: string): void => {
-                            void this.sendQuestion(question);
-                          }
-                        })
-                      }
-                      .width('100%')
-                    }, (item: QuickQuestion) => item.label)
-
-                    Row() {
-                      Row({ space: 7 }) {
-                        Text('✎')
-                          .fontSize(15)
-                          .fontColor('#4777F5')
-
-                        Text('AI 组卷')
-                          .fontSize(13)
-                          .fontColor('#344054')
-                          .fontWeight(FontWeight.Medium)
-                      }
-                      .height(38)
-                      .padding({ left: 12, right: 12 })
-                      .alignItems(VerticalAlign.Center)
-                      .backgroundColor(Color.White)
-                      .borderRadius(18)
-                      .border({ width: 1, color: '#E3E9F6' })
-                      .opacity(this.isLoading || this.isRestoring ? 0.55 : 1)
-                      .onClick(() => {
-                        if (!this.isLoading && !this.isRestoring) {
-                          this.appPathStack.pushPathByName(
-                            AppRoutes.GENERATE_PAPER,
-                            null
-                          );
-                        }
-                      })
-                    }
-                    .width('100%')
-                    .justifyContent(FlexAlign.Start)
-                  }
-                  .width('100%')
-                  .margin({ top: 10 })
-                }
               }
               .width('100%')
             }
           }, (message: ChatMessage) => `${message.id}-${message.revision}`)
         }
         .layoutWeight(1)
-        .padding({ left: 13, right: 13, top: 10, bottom: 10 })
+        .padding({ left: 13, right: 13, top: 0, bottom: 0 })
         .width('100%')
         .edgeEffect(EdgeEffect.Spring)
+
+        Column({ space: 8 }) {
+          Row({ space: 8 }) {
+            SuggestionChip({
+              item: ChatViewModel.QUICK_QUESTIONS[0],
+              disabled: this.isLoading || this.isRestoring,
+              onSelect: (question: string): void => { void this.sendQuestion(question); }
+            })
+            SuggestionChip({
+              item: ChatViewModel.QUICK_QUESTIONS[1],
+              disabled: this.isLoading || this.isRestoring,
+              onSelect: (question: string): void => { void this.sendQuestion(question); }
+            })
+            SuggestionChip({
+              item: ChatViewModel.QUICK_QUESTIONS[2],
+              disabled: this.isLoading || this.isRestoring,
+              onSelect: (question: string): void => { void this.sendQuestion(question); }
+            })
+          }.width('100%').justifyContent(FlexAlign.Start)
+
+          Row({ space: 8 }) {
+            SuggestionChip({
+              item: ChatViewModel.QUICK_QUESTIONS[3],
+              disabled: this.isLoading || this.isRestoring,
+              onSelect: (question: string): void => { void this.sendQuestion(question); }
+            })
+            Row({ space: 7 }) {
+              Text('✎').fontSize(15).fontColor('#4777F5')
+              Text('AI 组卷').fontSize(12).fontColor('#344054').fontWeight(FontWeight.Medium)
+            }
+            .height(38)
+            .padding({ left: 12, right: 12 })
+            .alignItems(VerticalAlign.Center)
+            .backgroundColor(Color.White)
+            .borderRadius(18)
+            .border({ width: 1, color: '#E3E9F6' })
+            .opacity(this.isLoading || this.isRestoring ? 0.55 : 1)
+            .onClick(() => {
+              if (!this.isLoading && !this.isRestoring) {
+                this.appPathStack.pushPathByName(AppRoutes.GENERATE_PAPER, null);
+              }
+            })
+            Blank().layoutWeight(1)
+          }.width('100%').justifyContent(FlexAlign.Start)
+        }
+        .width('100%')
+        .padding({ left: 13, right: 13, top: 4, bottom: 0 })
 
         ChatInputBar({
           text: $inputText,

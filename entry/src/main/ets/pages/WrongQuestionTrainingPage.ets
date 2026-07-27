@@ -5,6 +5,7 @@ import { PageHeader } from '../components/PageHeader';
 import { EmptyStateView } from '../components/profile/EmptyStateView';
 import { TaskStatus } from '../model/DomainModels';
 import { ContinuationSnapshot, DistributedEntityType, DistributedEventType } from '../model/DistributedStudyModels';
+import { DataLoadResult, DataSource, WrongQuestion } from '../model/ProfileModels';
 import { WrongQuestionTraining, WrongQuestionTrainingResult } from '../model/StudyPlanModels';
 import { StudyPlanService } from '../service/StudyPlanService';
 import { DistributedPageService } from '../service/DistributedPageService';
@@ -16,17 +17,21 @@ export struct WrongQuestionTrainingPage {
   @StorageLink(AppStorageKeys.STUDENT_PROFILE_ID) studentProfileId: number = 0;
   @Prop wrongQuestionId: number = 0;
   @Prop taskId: number = 0;
+  @Prop allMode: boolean = false;
   @State training: WrongQuestionTraining | null = null;
+  @State questions: WrongQuestion[] = [];
+  @State currentIndex: number = 0;
   @State selectedIndex: number = -1;
   @State result: WrongQuestionTrainingResult | null = null;
   @State loading: boolean = true;
   @State submitting: boolean = false;
+  @State isCompleted: boolean = false;
   private readonly pageKey: string = 'WrongQuestionTrainingPage';
 
   aboutToAppear(): void {
     const continuation = new ContinuationSnapshot();
     continuation.routeName = AppRoutes.WRONG_QUESTION_TRAINING;
-    continuation.entityId = this.wrongQuestionId;
+    continuation.entityId = this.allMode ? 0 : this.wrongQuestionId;
     continuation.parentEntityId = this.taskId;
     DistributedPageService.activate(this.pageKey, [
       DistributedEventType.WRONG_QUESTION_UPDATED,
@@ -43,14 +48,45 @@ export struct WrongQuestionTrainingPage {
   private async loadTraining(): Promise<void> {
     this.loading = true;
     try {
-      this.training = await WrongQuestionService.getTraining(this.studentProfileId, this.wrongQuestionId);
+      if (this.allMode) {
+        const result: DataLoadResult<WrongQuestion[]> =
+          await WrongQuestionService.getQuestions(this.studentProfileId, '全部');
+        this.questions = (result.data || []).filter((item: WrongQuestion) => !item.mastered);
+        if (this.questions.length === 0) {
+          this.training = null;
+        } else {
+          this.currentIndex = 0;
+          this.training = await WrongQuestionService.getTraining(this.studentProfileId, this.questions[0].id);
+        }
+      } else {
+        this.questions = [];
+        this.currentIndex = 0;
+        this.training = await WrongQuestionService.getTraining(this.studentProfileId, this.wrongQuestionId);
+      }
       DistributedPageService.markFresh(this.pageKey);
     } catch (error) {
       this.training = null;
+      this.questions = [];
       console.error(`错题复测加载失败: ${JSON.stringify(error)}`);
     } finally {
       this.loading = false;
     }
+  }
+
+  private currentQuestionId(): number {
+    if (this.allMode && this.questions.length > 0 && this.currentIndex < this.questions.length) {
+      return this.questions[this.currentIndex].id;
+    }
+    return this.wrongQuestionId;
+  }
+
+  private async completeTaskIfNeeded(): Promise<void> {
+    if (this.taskId <= 0) return;
+    await StudyPlanService.updateStatus(this.taskId, TaskStatus.COMPLETED);
+    DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
+      DistributedEntityType.STUDY_TASK, this.taskId, '', this.studentProfileId);
+    DistributedPageService.publish(DistributedEventType.STUDY_PLAN_UPDATED,
+      DistributedEntityType.STUDY_PLAN, this.taskId, '', this.studentProfileId);
   }
 
   private async submit(): Promise<void> {
@@ -60,33 +96,51 @@ export struct WrongQuestionTrainingPage {
       return;
     }
     this.submitting = true;
+    const questionId: number = this.currentQuestionId();
     try {
       const value: WrongQuestionTrainingResult = await WrongQuestionService.submitTraining(
         this.studentProfileId, this.training.id, this.selectedIndex, this.training.live
       );
       this.result = value;
-      if (value.correct && this.taskId > 0 && !this.training.live) {
-        await StudyPlanService.updateStatus(this.taskId, TaskStatus.COMPLETED);
-      }
       DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_RETEST_UPDATED,
-        DistributedEntityType.WRONG_QUESTION, this.wrongQuestionId, '', this.studentProfileId,
+        DistributedEntityType.WRONG_QUESTION, questionId, '', this.studentProfileId,
         AppRoutes.WRONG_QUESTION_TRAINING);
       DistributedPageService.publish(DistributedEventType.WRONG_QUESTION_UPDATED,
-        DistributedEntityType.WRONG_QUESTION, this.wrongQuestionId, '', this.studentProfileId);
+        DistributedEntityType.WRONG_QUESTION, questionId, '', this.studentProfileId);
       DistributedPageService.publish(DistributedEventType.STUDY_REPORT_UPDATED,
         DistributedEntityType.STUDY_REPORT, this.studentProfileId);
       DistributedPageService.publish(DistributedEventType.HOME_OVERVIEW_UPDATED,
         DistributedEntityType.HOME, this.studentProfileId);
-      if (value.correct && this.taskId > 0 && !this.training.live) {
-        DistributedPageService.publish(DistributedEventType.STUDY_TASK_UPDATED,
-          DistributedEntityType.STUDY_TASK, this.taskId, '', this.studentProfileId);
-      }
       promptAction.showToast({ message: value.correct ? '回答正确，已标记为掌握' : '回答错误，请结合解析重新练习' });
+      if (!this.allMode && value.correct && this.taskId > 0 && !this.training.live) {
+        await this.completeTaskIfNeeded();
+      }
     } catch (error) {
       promptAction.showToast({ message: '提交失败，请检查网络后重试' });
     } finally {
       this.submitting = false;
     }
+  }
+
+  private async nextQuestion(): Promise<void> {
+    if (!this.allMode || this.currentIndex >= this.questions.length - 1) return;
+    this.currentIndex++;
+    this.reset();
+    this.loading = true;
+    try {
+      const questionId: number = this.questions[this.currentIndex].id;
+      this.training = await WrongQuestionService.getTraining(this.studentProfileId, questionId);
+    } catch (error) {
+      this.training = null;
+      console.error(`加载下一题失败: ${JSON.stringify(error)}`);
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async markComplete(): Promise<void> {
+    await this.completeTaskIfNeeded();
+    this.isCompleted = true;
   }
 
   private reset(): void {
@@ -126,7 +180,13 @@ export struct WrongQuestionTrainingPage {
                   Text(`历史答错 ${this.result ? this.result.wrongCount : this.training.wrongCount} 次`)
                     .fontSize(11).fontColor('#D92D20')
                 }.width('100%')
-                Text('原题复测').fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033').width('100%')
+                Row() {
+                  Text('原题复测').fontSize(20).fontWeight(FontWeight.Bold).fontColor('#172033').layoutWeight(1)
+                  if (this.allMode) {
+                    Text(`第 ${this.currentIndex + 1} / ${this.questions.length} 题`)
+                      .fontSize(12).fontColor('#667085')
+                  }
+                }.width('100%')
                 Text(this.training.question).fontSize(17).lineHeight(27).fontColor('#172033').width('100%')
                 Text(`上次错误答案：${this.training.previousAnswer}`).fontSize(12).fontColor('#667085').width('100%')
               }.padding(16).width('100%').backgroundColor(Color.White).borderRadius(17)
@@ -143,8 +203,16 @@ export struct WrongQuestionTrainingPage {
                   Text(`解析：${this.result.explanation}`).fontSize(13).lineHeight(21).fontColor('#475467').width('100%')
                 }.padding(15).width('100%').backgroundColor(this.result.correct ? '#ECFDF3' : '#FFF4ED').borderRadius(15)
                 Row({ space: 10 }) {
-                  Button('返回学习计划').layoutWeight(1).height(44).backgroundColor('#98A2B3')
-                    .onClick(() => this.appPathStack.pop())
+                  if (this.allMode && this.currentIndex < this.questions.length - 1) {
+                    Button('下一题').layoutWeight(1).height(44).backgroundColor('#2F6BFF')
+                      .onClick(() => void this.nextQuestion())
+                  } else if (this.allMode && this.currentIndex >= this.questions.length - 1 && !this.isCompleted) {
+                    Button('标记完成').layoutWeight(1).height(44).backgroundColor('#12B76A')
+                      .onClick(() => { void this.markComplete(); })
+                  } else {
+                    Button('返回学习计划').layoutWeight(1).height(44).backgroundColor('#98A2B3')
+                      .onClick(() => this.appPathStack.pop())
+                  }
                   if (!this.result.correct) {
                     Button('重新练习').layoutWeight(1).height(44).backgroundColor('#2F6BFF').onClick(() => this.reset())
                   }

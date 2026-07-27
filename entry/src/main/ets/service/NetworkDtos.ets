@@ -30,6 +30,15 @@ export class StudyTaskRequest {
   student_profile_id: number = 0;
   task_type: string = '课程';
   target_id: number = 1;
+  date: string = '';
+}
+
+export class AiTaskRequest {
+  student_profile_id: number = 0;
+  title: string = '';
+  date: string = '';
+  duration_minutes: number = 30;
+  knowledge_point: string = '';
 }
 
 export class TaskStatusRequest {

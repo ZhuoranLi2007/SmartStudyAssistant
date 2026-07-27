@@ -55,6 +55,11 @@ function wrongQuestionTaskIdFromParam(param: Object): number {
   return 0;
 }
 
+function wrongQuestionAllModeFromParam(param: Object): boolean {
+  if (param instanceof WrongQuestionTrainingRouteParam) return param.allMode;
+  return false;
+}
+
 function keywordFromSearchParam(param: Object): string {
   if (param instanceof SearchRouteParam) return param.keyword;
   if (param instanceof ContinuationRouteParam) return param.searchKeyword;
@@ -136,7 +141,8 @@ export function PageMap(name: string, param: Object) {
     } else {
       WrongQuestionTrainingPage({
         wrongQuestionId: wrongQuestionIdFromParam(param),
-        taskId: wrongQuestionTaskIdFromParam(param)
+        taskId: wrongQuestionTaskIdFromParam(param),
+        allMode: wrongQuestionAllModeFromParam(param)
       })
     }
   } else if (name === AppRoutes.SEARCH_RESULT) {

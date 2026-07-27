@@ -6,9 +6,12 @@ export struct CourseBottomBar {
   @Prop enrollBusy: boolean = false;
   @Prop isAdding: boolean = false;
   @Prop isAdded: boolean = false;
+  @Prop isCompleted: boolean = false;
+  @Prop completeBusy: boolean = false;
   onToggleFavorite: () => void = (): void => {};
   onEnroll: () => void = (): void => {};
   onAddPlan: () => void = (): void => {};
+  onComplete: () => void = (): void => {};
 
   private enrollText(): string {
     if (this.enrollBusy) return '加入中...';
@@ -20,6 +23,12 @@ export struct CourseBottomBar {
     if (this.isAdding) return '添加中...';
     if (this.isAdded) return '已在计划';
     return '加入计划';
+  }
+
+  private completeText(): string {
+    if (this.completeBusy) return '标记中...';
+    if (this.isCompleted) return '已完成';
+    return '完成课程';
   }
 
   build() {
@@ -36,6 +45,12 @@ export struct CourseBottomBar {
         .backgroundColor(this.isAdded ? '#B8C4DA' : '#2F6BFF')
         .enabled(!this.isAdding && !this.isAdded)
         .onClick(() => this.onAddPlan())
+      if (this.isEnrolled) {
+        Button(this.completeText()).layoutWeight(1).height(46).fontSize(14).fontWeight(FontWeight.Bold)
+          .backgroundColor(this.isCompleted ? '#98A2B3' : '#7F56D9')
+          .enabled(!this.isCompleted && !this.completeBusy)
+          .onClick(() => this.onComplete())
+      }
     }
     .width('100%').padding({ left: 14, right: 14, top: 10, bottom: 10 }).backgroundColor(Color.White)
     .border({ width: { top: 1 }, color: '#EAECF0' })

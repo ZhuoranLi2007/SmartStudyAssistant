@@ -84,9 +84,6 @@ def extract_entities(message: str, context: dict[str, Any] | None = None) -> dic
         if goal in message:
             result["learningGoal"] = goal
             break
-    hours_match = re.search(r"每周(?:可以|能)?(?:学习)?\s*(\d+(?:\.\d+)?)\s*(?:小时|时)", message)
-    if hours_match:
-        result["weeklyHours"] = float(hours_match.group(1))
     for level in ("基础巩固型", "同步提高型", "中等提升型", "拔高拓展型"):
         if level in message:
             result["courseLevel"] = "中等提升型" if level == "同步提高型" else level
@@ -142,7 +139,7 @@ class IntentClassifier:
         fallback = json.dumps({"intent": rule.intent.value, "confidence": rule.confidence}, ensure_ascii=False)
         safe_context = {
             key: value for key, value in (context or {}).items()
-            if key in {"grade", "subject", "score", "weakPoints", "learningGoal", "weeklyStudyMinutes"}
+            if key in {"grade", "subject", "score", "weakPoints", "learningGoal"}
         }
         prompt = (
             "请根据用户本轮消息和学习上下文判断最主要的教育咨询意图，只输出 JSON 对象，"

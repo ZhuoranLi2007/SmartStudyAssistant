@@ -250,8 +250,6 @@ class AIOrchestrator:
             "name": student.name,
             "grade": student.grade,
             "learningGoal": student.learning_goal,
-            "weeklyStudyMinutes": student.weekly_study_minutes,
-            "weeklyHours": round(student.weekly_study_minutes / 60, 1),
             "subjects": [{
                 "subject": item.subject,
                 "score": item.recent_score,
@@ -263,7 +261,6 @@ class AIOrchestrator:
             "studentName": student.name,
             "grade": student.grade,
             "learningGoal": student.learning_goal,
-            "weeklyStudyMinutes": student.weekly_study_minutes,
             "allSubjects": snapshot["subjects"],
         }
         if preferred:
