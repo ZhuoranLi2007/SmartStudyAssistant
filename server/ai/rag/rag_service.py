@@ -1,7 +1,9 @@
 import hashlib
 import json
+from math import sqrt
 from pathlib import Path
 
+from sklearn.feature_extraction.text import HashingVectorizer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +11,22 @@ from server.config import get_settings
 from server.models import Course, Paper, RagChunk, RagDocument
 
 
+EMBEDDING_KEY = "_embedding"
+EMBEDDING_VERSION_KEY = "_embeddingVersion"
+EMBEDDING_VERSION = "hashing-char-2-4-512-v1"
+EMBEDDING_FEATURES = 512
+MMR_LAMBDA = 0.75
+
+
 class RAGService:
+    _vectorizer = HashingVectorizer(
+        analyzer="char",
+        ngram_range=(2, 4),
+        n_features=EMBEDDING_FEATURES,
+        alternate_sign=False,
+        norm="l2",
+    )
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -32,6 +49,95 @@ class RAGService:
             start = max(start + 1, end - overlap)
         return chunks
 
+    @classmethod
+    def _vectorize(cls, content: str) -> dict[int, float]:
+        if not content.strip():
+            return {}
+        row = cls._vectorizer.transform([content]).tocsr()
+        return {
+            int(index): round(float(value), 8)
+            for index, value in zip(row.indices, row.data)
+            if value
+        }
+
+    @staticmethod
+    def _encode_vector(vector: dict[int, float]) -> dict[str, float]:
+        return {str(index): value for index, value in vector.items()}
+
+    @staticmethod
+    def _decode_vector(raw_vector: object) -> dict[int, float]:
+        if not isinstance(raw_vector, dict):
+            return {}
+        vector: dict[int, float] = {}
+        for raw_index, raw_value in raw_vector.items():
+            try:
+                index = int(raw_index)
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= index < EMBEDDING_FEATURES and value:
+                vector[index] = value
+        return vector
+
+    @classmethod
+    def _chunk_metadata(cls, metadata: dict, content: str) -> dict:
+        return {
+            **metadata,
+            EMBEDDING_VERSION_KEY: EMBEDDING_VERSION,
+            EMBEDDING_KEY: cls._encode_vector(cls._vectorize(content)),
+        }
+
+    @classmethod
+    def _chunk_vector(cls, chunk: RagChunk) -> dict[int, float]:
+        metadata = chunk.metadata_json or {}
+        if metadata.get(EMBEDDING_VERSION_KEY) == EMBEDDING_VERSION:
+            stored = cls._decode_vector(metadata.get(EMBEDDING_KEY))
+            if stored:
+                return stored
+        # 兼容尚未执行知识库重建的旧分块；只在本次检索中临时计算，不修改业务数据。
+        return cls._vectorize(chunk.content)
+
+    @staticmethod
+    def _cosine(left: dict[int, float], right: dict[int, float]) -> float:
+        if not left or not right:
+            return 0.0
+        smaller, larger = (left, right) if len(left) <= len(right) else (right, left)
+        dot = sum(value * larger.get(index, 0.0) for index, value in smaller.items())
+        if dot <= 0:
+            return 0.0
+        left_norm = sqrt(sum(value * value for value in left.values()))
+        right_norm = sqrt(sum(value * value for value in right.values()))
+        if not left_norm or not right_norm:
+            return 0.0
+        return dot / (left_norm * right_norm)
+
+    @classmethod
+    def _mmr_indices(
+        cls,
+        relevance_scores: list[float],
+        vectors: list[dict[int, float]],
+        limit: int,
+    ) -> list[int]:
+        candidates = [
+            index
+            for index, score in sorted(enumerate(relevance_scores), key=lambda item: item[1], reverse=True)
+            if score > 0
+        ]
+        selected: list[int] = []
+        while candidates and len(selected) < limit:
+            if not selected:
+                best = candidates[0]
+            else:
+                def mmr_key(index: int) -> tuple[float, float, int]:
+                    redundancy = max(cls._cosine(vectors[index], vectors[item]) for item in selected)
+                    mmr_score = MMR_LAMBDA * relevance_scores[index] - (1 - MMR_LAMBDA) * redundancy
+                    return mmr_score, relevance_scores[index], -index
+
+                best = max(candidates, key=mmr_key)
+            selected.append(best)
+            candidates.remove(best)
+        return selected
+
     async def _upsert_document(self, source_type: str, source_id: str, title: str, content: str, metadata: dict) -> tuple[int, bool]:
         content_hash = self._hash(content)
         current = await self.db.scalar(select(RagDocument).where(
@@ -41,12 +147,12 @@ class RAGService:
         ))
         if current:
             current.title = title
-            current.metadata_json = metadata
+            current.metadata_json = dict(metadata)
             chunks = list((await self.db.scalars(select(RagChunk).where(
                 RagChunk.document_id == current.id
             ))).all())
             for chunk in chunks:
-                chunk.metadata_json = metadata
+                chunk.metadata_json = self._chunk_metadata(metadata, chunk.content)
             return current.id, False
         old_rows = list((await self.db.scalars(select(RagDocument).where(
             RagDocument.source_type == source_type,
@@ -65,7 +171,12 @@ class RAGService:
         self.db.add(row)
         await self.db.flush()
         for index, chunk in enumerate(self._split(content)):
-            self.db.add(RagChunk(document_id=row.id, chunk_index=index, content=chunk, metadata_json=metadata))
+            self.db.add(RagChunk(
+                document_id=row.id,
+                chunk_index=index,
+                content=chunk,
+                metadata_json=self._chunk_metadata(metadata, chunk),
+            ))
         return row.id, True
 
     async def rebuild(self) -> dict:
@@ -151,23 +262,14 @@ class RAGService:
             rows.append((chunk, document))
         if not rows:
             return []
-        texts = [chunk.content for chunk, _document in rows]
-        scores: list[float]
-        try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
-            from sklearn.metrics.pairwise import cosine_similarity
-
-            matrix = TfidfVectorizer(analyzer="char", ngram_range=(2, 4), min_df=1).fit_transform(texts + [query])
-            scores = cosine_similarity(matrix[-1], matrix[:-1]).ravel().tolist()
-        except (ImportError, ValueError):
-            query_chars = set(query)
-            scores = [len(query_chars.intersection(set(text))) / max(len(query_chars), 1) for text in texts]
+        query_vector = self._vectorize(query)
+        vectors = [self._chunk_vector(chunk) for chunk, _document in rows]
+        scores = [self._cosine(query_vector, vector) for vector in vectors]
         limit = max(1, min(int(top_k or get_settings().rag_top_k), 6))
-        ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)
+        ranked = self._mmr_indices(scores, vectors, limit)
         result: list[dict] = []
-        for index, score in ranked[:limit]:
-            if score <= 0:
-                continue
+        for index in ranked:
+            score = scores[index]
             chunk, document = rows[index]
             result.append({
                 "title": document.title,

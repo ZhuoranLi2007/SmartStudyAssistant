@@ -23,32 +23,29 @@ class PaperSearchTool(BusinessTool):
     }
 
     async def execute(self, context: ToolContext, arguments: dict) -> dict:
-        subject = arguments.get("subject") or "数学"
+        subject = str(arguments.get("subject") or "数学")
         subject_profile = await context.db.scalar(select(StudentSubjectProfile).where(
             StudentSubjectProfile.student_profile_id == context.student.id,
             StudentSubjectProfile.subject == subject,
         ))
-        if subject_profile is None:
-            subject_profile = await context.db.scalar(select(StudentSubjectProfile).where(
+        reference_profile = subject_profile
+        if reference_profile is None:
+            reference_profile = await context.db.scalar(select(StudentSubjectProfile).where(
                 StudentSubjectProfile.student_profile_id == context.student.id
             ))
 
         grade = arguments.get("grade") or context.student.grade
-        if subject_profile is not None:
-            subject = subject_profile.subject
 
         # 未指定层次时复用课程推荐的成绩分层口径，保证课卷难度一致。
         level = arguments.get("difficulty")
         if level:
             level = _DIFFICULTY_TO_LEVEL.get(level, level)
-        elif subject_profile is not None:
-            level = calculate_level(subject_profile.recent_score)
+        elif reference_profile is not None:
+            level = calculate_level(reference_profile.recent_score)
 
-        statement = select(Paper).where(Paper.is_active.is_(True))
+        statement = select(Paper).where(Paper.is_active.is_(True), Paper.subject == subject)
         if grade:
             statement = statement.where(Paper.grade == grade)
-        if subject:
-            statement = statement.where(Paper.subject == subject)
         if level:
             statement = statement.where(Paper.suitable_course_level == level)
 
@@ -65,7 +62,25 @@ class PaperSearchTool(BusinessTool):
                     if point in (row.knowledge_points or []) and row not in matched:
                         matched.append(row)
                         break
-            rows = matched if matched else rows
+            rows = matched
+
+        # 精确匹配为空时依次放宽层次、知识点和年级，学科不参与降级。
+        if not rows:
+            rows = list((await context.db.scalars(select(Paper).where(
+                Paper.is_active.is_(True),
+                Paper.grade == grade,
+                Paper.subject == subject,
+            ).order_by(Paper.id))).all())
+        if not rows:
+            rows = list((await context.db.scalars(select(Paper).where(
+                Paper.is_active.is_(True),
+                Paper.subject == subject,
+            ).order_by(Paper.id))).all())
+        rows = sorted(rows, key=lambda row: (
+            bool(target_points) and not any(point in (row.knowledge_points or []) for point in target_points),
+            bool(level) and row.suitable_course_level != level,
+            row.id,
+        ))
 
         return {"papers": [{
             "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,

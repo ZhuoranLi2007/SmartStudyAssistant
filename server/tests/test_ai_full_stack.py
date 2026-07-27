@@ -10,10 +10,12 @@ from sqlalchemy import func, select
 
 from server.ai.intent import IntentType
 from server.ai.intent.intent_classifier import IntentClassifier, classify_by_rules
+from server.ai.orchestrator import _course_cards, _paper_cards
 from server.ai.providers import DeepSeekProvider, ProviderError, ProviderResult, ProviderToolCall
 from server.ai.rag import RAGService
+from server.ai.rag.rag_service import EMBEDDING_KEY, EMBEDDING_VERSION, EMBEDDING_VERSION_KEY
 from server.database import SessionLocal
-from server.models import CourseOrder, RagChunk, RagDocument
+from server.models import Course, CourseOrder, RagChunk, RagDocument
 
 
 async def register_parent(client):
@@ -25,12 +27,12 @@ async def register_parent(client):
     return response.json()["data"]
 
 
-async def create_student(client, parent, weak_points=None):
+async def create_student(client, parent, weak_points=None, grade="六年级", score=82):
     response = await client.put(
         f"/api/students/{parent['studentProfileId']}",
         headers={"Authorization": f"Bearer {parent['accessToken']}"},
         json={
-        "name": "AI测试学生", "grade": "六年级", "subject": "数学", "recent_score": 82,
+        "name": "AI测试学生", "grade": grade, "subject": "数学", "recent_score": score,
         "weak_points": ["应用题"] if weak_points is None else weak_points,
         "learning_goal": "提高成绩", "weekly_study_minutes": 210,
     })
@@ -58,6 +60,13 @@ def test_weakness_statement_uses_deterministic_learning_analysis(message, point)
     [
         ("孩子六年级数学82分，应用题较弱，请推荐课程", IntentType.COURSE_RECOMMENDATION),
         ("孩子六年级数学82分，应用题较弱，请推荐试卷", IntentType.PAPER_SEARCH),
+        ("给我推荐一个数学课", IntentType.COURSE_RECOMMENDATION),
+        ("推荐习题", IntentType.PAPER_SEARCH),
+        ("给我推荐一些应用题", IntentType.PAPER_SEARCH),
+        ("推荐练习", IntentType.PAPER_SEARCH),
+        ("推荐题目", IntentType.PAPER_SEARCH),
+        ("推荐数学习题", IntentType.PAPER_SEARCH),
+        ("来几道应用题", IntentType.PAPER_SEARCH),
     ],
 )
 def test_explicit_resource_request_takes_priority_over_weakness_statement(
@@ -69,6 +78,21 @@ def test_explicit_resource_request_takes_priority_over_weakness_statement(
         "weakPoints": ["百分数"], "learningGoal": "提高成绩",
     })
     assert result.intent == expected_intent
+
+
+def test_resource_cards_filter_invalid_ids_and_limit_results():
+    course_cards = _course_cards([
+        {"id": 0, "name": "无效课程"},
+        *[{"id": index, "name": f"课程{index}"} for index in range(1, 6)],
+    ])
+    paper_cards = _paper_cards([
+        {"id": -1, "name": "无效试卷"},
+        *[{"id": index, "name": f"试卷{index}"} for index in range(1, 6)],
+    ])
+
+    assert [card["id"] for card in course_cards] == [1, 2, 3]
+    assert [card["id"] for card in paper_cards] == [1, 2, 3]
+    assert all(card["routeParams"] == {"id": card["id"]} for card in course_cards + paper_cards)
 
 
 @pytest.mark.asyncio
@@ -156,6 +180,70 @@ async def test_rag_filters_grade_subject_and_updates_existing_metadata(client):
         document = await db.get(RagDocument, document_id)
         assert document.metadata_json["level"] == "中等提升型"
         assert chunk.metadata_json["level"] == "中等提升型"
+        assert chunk.metadata_json[EMBEDDING_VERSION_KEY] == EMBEDDING_VERSION
+        assert chunk.metadata_json[EMBEDDING_KEY]
+
+
+@pytest.mark.asyncio
+async def test_rag_search_supports_legacy_chunks_without_stored_embeddings(client):
+    async with SessionLocal() as db:
+        service = RAGService(db)
+        document_id, _created = await service._upsert_document(
+            "knowledge",
+            "legacy-vector-test",
+            "分数通分方法",
+            "分数通分训练：先找最小公倍数，再统一分母。",
+            {"subject": "数学", "topic": "分数"},
+        )
+        await db.flush()
+        chunk = await db.scalar(select(RagChunk).where(RagChunk.document_id == document_id))
+        chunk.metadata_json = {"subject": "数学", "topic": "分数"}
+        await db.commit()
+
+        rows = await service.search(
+            "分数通分最小公倍数",
+            subject="数学",
+            source_types=["knowledge"],
+            top_k=3,
+        )
+
+        assert rows
+        assert rows[0]["sourceId"] == "legacy-vector-test"
+        assert EMBEDDING_KEY not in chunk.metadata_json
+
+
+def test_mmr_prefers_relevant_but_non_duplicate_candidates():
+    vectors = [
+        {0: 1.0},
+        {0: 0.99, 1: 0.1},
+        {2: 1.0},
+    ]
+
+    selected = RAGService._mmr_indices([1.0, 0.96, 0.82], vectors, limit=2)
+
+    assert selected == [0, 2]
+
+
+@pytest.mark.asyncio
+async def test_rag_rebuild_endpoint_persists_embeddings_and_keeps_source_contract(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+
+    rebuild = await client.post("/api/ai/rag/rebuild", headers=auth)
+
+    assert rebuild.status_code == 200, rebuild.text
+    assert rebuild.json()["data"]["documents"] > 0
+    assert rebuild.json()["data"]["chunks"] > 0
+
+    async with SessionLocal() as db:
+        chunk = await db.scalar(select(RagChunk).order_by(RagChunk.id))
+        assert chunk.metadata_json[EMBEDDING_VERSION_KEY] == EMBEDDING_VERSION
+        assert chunk.metadata_json[EMBEDDING_KEY]
+
+        sources = await RAGService(db).search("数学应用题学习方法", top_k=3)
+        assert sources
+        assert set(sources[0]) == {"title", "sourceType", "sourceId", "content", "score", "metadata"}
+        assert EMBEDDING_KEY not in sources[0]["metadata"]
 
 
 @pytest.mark.asyncio
@@ -381,10 +469,115 @@ async def test_health_rag_and_structured_ai_response(client):
     assert all(card["id"] > 0 for card in data["cards"])
     course_cards = [card for card in data["cards"] if card["type"] == "COURSE"]
     assert course_cards
-    assert course_cards[0]["grade"] == "六年级"
+    assert course_cards[0]["grade"]
     assert course_cards[0]["subject"] == "数学"
     assert course_cards[0]["lessonCount"] > 0
     assert course_cards[0]["recommendationReason"]
+
+
+@pytest.mark.asyncio
+async def test_natural_resource_requests_return_clickable_cards_and_restore_from_history(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+    student = await create_student(client, parent, grade="六年级", score=75)
+
+    course_response = await client.post("/api/ai/chat", headers=auth, json={
+        "studentProfileId": student["id"],
+        "clientMessageId": str(uuid.uuid4()),
+        "message": "给我推荐一个数学课",
+    })
+    assert course_response.status_code == 200, course_response.text
+    course_data = course_response.json()["data"]
+    assert course_data["intent"] == "COURSE_RECOMMENDATION"
+    assert 1 <= len(course_data["cards"]) <= 3
+    assert all(card["type"] == "COURSE" for card in course_data["cards"])
+    assert all(card["id"] > 0 for card in course_data["cards"])
+    assert all(card["subject"] == "数学" for card in course_data["cards"])
+    assert all(card["route"] == "CourseDetailPage" for card in course_data["cards"])
+    assert all(card["routeParams"] == {"id": card["id"]} for card in course_data["cards"])
+
+    stream = await client.post("/api/ai/chat/stream", headers=auth, json={
+        "studentProfileId": student["id"],
+        "clientMessageId": str(uuid.uuid4()),
+        "message": "推荐数学习题",
+    })
+    assert stream.status_code == 200, stream.text
+    done_text = stream.text.split("event: done\ndata: ", 1)[1].split("\n\n", 1)[0]
+    done = json.loads(done_text)
+    assert done["intent"] == "PAPER_SEARCH"
+    assert 1 <= len(done["cards"]) <= 3
+    assert all(card["type"] == "PAPER" for card in done["cards"])
+    assert all(card["id"] > 0 for card in done["cards"])
+    assert all(card["subject"] == "数学" for card in done["cards"])
+    assert all(card["route"] == "PaperDetailPage" for card in done["cards"])
+    assert all(card["routeParams"] == {"id": card["id"]} for card in done["cards"])
+
+    history = await client.get(f"/api/ai/sessions/{done['sessionId']}/messages", headers=auth)
+    assert history.status_code == 200, history.text
+    assistant_messages = [
+        message for message in history.json()["data"]["messages"]
+        if message["role"] == "assistant" and message["intent"] == "PAPER_SEARCH"
+    ]
+    assert assistant_messages[-1]["cards"] == done["cards"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_subject_is_preserved_when_profile_has_another_subject(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+    student = await create_student(client, parent, grade="六年级", score=75)
+
+    async with SessionLocal() as db:
+        db.add(Course(
+            name="演示英语提升课程",
+            grade="五年级",
+            subject="英语",
+            level="中等提升型",
+            difficulty="中等",
+            suitable_for="希望提高英语综合能力的学生",
+            knowledge_points=["词汇", "阅读"],
+            description="英语词汇与阅读综合提升课程。",
+            price=Decimal("99.00"),
+            total_lessons=12,
+            is_active=True,
+        ))
+        await db.commit()
+
+    response = await client.post("/api/ai/chat", headers=auth, json={
+        "studentProfileId": student["id"],
+        "clientMessageId": str(uuid.uuid4()),
+        "message": "给我推荐一个英语课",
+    })
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["intent"] == "COURSE_RECOMMENDATION"
+    assert data["cards"]
+    assert all(card["type"] == "COURSE" and card["subject"] == "英语" for card in data["cards"])
+
+
+@pytest.mark.asyncio
+async def test_empty_paper_recommendation_returns_guidance_without_fake_cards(client):
+    parent = await register_parent(client)
+    auth = {"Authorization": f"Bearer {parent['accessToken']}"}
+    student = await create_student(client, parent)
+
+    with patch(
+        "server.ai.orchestrator.PaperSearchTool.execute",
+        new=AsyncMock(return_value={"papers": []}),
+    ):
+        response = await client.post("/api/ai/chat", headers=auth, json={
+            "studentProfileId": student["id"],
+            "clientMessageId": str(uuid.uuid4()),
+            "message": "推荐习题",
+        })
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["intent"] == "PAPER_SEARCH"
+    assert data["cards"] == []
+    assert data["fallbackUsed"] is True
+    assert data["answer"] == "暂时没有找到匹配试卷，可以放宽难度或知识点条件。"
 
 
 @pytest.mark.asyncio

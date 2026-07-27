@@ -33,7 +33,7 @@ export struct CourseRecommendationCard {
         Image($r('app.media.realImageGen_education_10')).width(72).height(72).objectFit(ImageFit.Cover).borderRadius(12)
         Column({ space: 5 }) {
           Text(this.card.title).fontSize(15).fontWeight(FontWeight.Bold).maxLines(2).width('100%')
-          Text(`${this.card.grade || ''} ${this.card.subject || ''}`.trim()).fontSize(11).fontColor('#667085').width('100%')
+          Text(this.card.subject || '综合课程').fontSize(11).fontColor('#667085').width('100%')
           if (this.card.lessonCount !== undefined) {
             Text(`共 ${this.card.lessonCount} 课时`).fontSize(11).fontColor('#667085').width('100%')
           }

@@ -127,13 +127,12 @@ export struct ChatMessageBubble {
       Row() {
         Blank().layoutWeight(1)
         Column({ space: 5 }) {
-          Text('我').fontSize(11).fontColor('#667085').width('100%').textAlign(TextAlign.End)
+          Text('我').fontSize(11).fontColor('#667085').textAlign(TextAlign.End)
           Text(this.message.content)
             .fontSize(15)
             .fontColor(Color.White)
             .lineHeight(22)
             .padding(12)
-            .width('100%')
             .backgroundColor('#356DF3')
             .borderRadius(16)
         }
