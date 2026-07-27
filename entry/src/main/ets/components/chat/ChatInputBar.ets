@@ -15,7 +15,7 @@ export struct ChatInputBar {
         .onClick(() => this.onVoice())
       TextArea({ text: this.text, placeholder: '描述学生学情或直接提问…' })
         .layoutWeight(1).height(48).fontSize(14).backgroundColor('#F6F8FC').borderRadius(22)
-        .padding({ left: 13, right: 13, top: 9, bottom: 8 }).maxLength(2000)
+        .padding({ left: 13, right: 13, top: 13, bottom: 4 }).maxLength(2000)
         .type(TextAreaType.NORMAL)
         .enablePreviewText(true)
         .onChange((value: string, previewText?: PreviewText) => {

@@ -20,23 +20,51 @@ class CourseSearchTool(BusinessTool):
     }
 
     async def execute(self, context: ToolContext, arguments: dict) -> dict:
-        statement = select(Course).where(Course.is_active.is_(True))
-        if arguments.get("grade"):
-            statement = statement.where(Course.grade == arguments["grade"])
-        if arguments.get("subject"):
-            statement = statement.where(Course.subject == arguments["subject"])
-        if arguments.get("courseLevel"):
-            level = "中等提升型" if arguments["courseLevel"] == "同步提高型" else arguments["courseLevel"]
-            statement = statement.where(Course.level == level)
-        if arguments.get("maxPrice") is not None:
-            statement = statement.where(Course.price <= float(arguments["maxPrice"]))
-        rows = list((await context.db.scalars(statement.order_by(Course.id).limit(8))).all())
+        grade = arguments.get("grade") or context.student.grade
+        subject = str(arguments.get("subject") or "")
+        level = arguments.get("courseLevel")
+        if level == "同步提高型":
+            level = "中等提升型"
+        max_price = arguments.get("maxPrice")
         point = str(arguments.get("knowledgePoint") or "")
+
+        exact = select(Course).where(Course.is_active.is_(True))
+        if grade:
+            exact = exact.where(Course.grade == grade)
+        if subject:
+            exact = exact.where(Course.subject == subject)
+        if level:
+            exact = exact.where(Course.level == level)
+        if max_price is not None:
+            exact = exact.where(Course.price <= float(max_price))
+        rows = list((await context.db.scalars(exact.order_by(Course.id))).all())
         if point:
             rows = [row for row in rows if point in (row.knowledge_points or [])]
+
+        # 精确条件没有资源时逐步放宽，但用户明确指定的学科始终保留。
+        if not rows:
+            same_grade = select(Course).where(Course.is_active.is_(True))
+            if grade:
+                same_grade = same_grade.where(Course.grade == grade)
+            if subject:
+                same_grade = same_grade.where(Course.subject == subject)
+            if max_price is not None:
+                same_grade = same_grade.where(Course.price <= float(max_price))
+            rows = list((await context.db.scalars(same_grade.order_by(Course.id))).all())
+        if not rows and subject:
+            rows = list((await context.db.scalars(select(Course).where(
+                Course.is_active.is_(True),
+                Course.subject == subject,
+            ).order_by(Course.id))).all())
+        rows = sorted(rows, key=lambda row: (
+            bool(point) and point not in (row.knowledge_points or []),
+            bool(level) and row.level != level,
+            row.id,
+        ))
+
         return {"courses": [{
             "id": row.id, "name": row.name, "grade": row.grade, "subject": row.subject,
             "level": row.level, "difficulty": row.difficulty, "price": float(row.price),
             "totalLessons": row.total_lessons, "knowledgePoints": row.knowledge_points,
             "suitableFor": row.suitable_for, "description": row.description,
-        } for row in rows]}
+        } for row in rows[:8]]}

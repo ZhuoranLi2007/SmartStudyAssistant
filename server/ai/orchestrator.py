@@ -55,6 +55,7 @@ AGENT_PROMPT = """你是智学规划助手的受控工具 Agent。根据用户�
 MAX_AGENT_ROUNDS = 3
 MAX_AGENT_TOOL_CALLS = 6
 TOOL_TIMEOUT_SECONDS = 12.0
+MAX_RECOMMENDATION_CARDS = 3
 WRITE_TOOL_ACTIONS = {("order_tool", "create")}
 CONFIRM_WORDS = ("确认", "同意报名", "确认报名", "确认创建")
 CANCEL_WORDS = ("取消", "不确认", "不用了", "先不报名")
@@ -72,6 +73,12 @@ INTENT_TOOL_NAMES: dict[IntentType, set[str]] = {
     IntentType.MY_ORDERS: {"order_tool"},
 }
 
+RESOURCE_TOOL_BY_INTENT: dict[IntentType, str] = {
+    IntentType.COURSE_RECOMMENDATION: "course_recommend_tool",
+    IntentType.COURSE_SEARCH: "course_search_tool",
+    IntentType.PAPER_SEARCH: "paper_search_tool",
+}
+
 
 @dataclass(slots=True)
 class PreparedChat:
@@ -86,7 +93,23 @@ class PreparedChat:
     history: list[dict[str, str]]
 
 
-def _course_cards(courses: list[dict], recommendation_reason: str = "") -> list[dict]:
+def _valid_resource_rows(items: list[dict], limit: int | None = MAX_RECOMMENDATION_CARDS) -> list[dict]:
+    rows: list[dict] = []
+    for item in items:
+        resource_id = item.get("id")
+        if isinstance(resource_id, bool) or not isinstance(resource_id, int) or resource_id <= 0:
+            continue
+        rows.append(item)
+        if limit is not None and len(rows) >= limit:
+            break
+    return rows
+
+
+def _course_cards(
+    courses: list[dict],
+    recommendation_reason: str = "",
+    limit: int | None = MAX_RECOMMENDATION_CARDS,
+) -> list[dict]:
     return [{
         "type": "COURSE",
         "id": item["id"],
@@ -102,10 +125,13 @@ def _course_cards(courses: list[dict], recommendation_reason: str = "") -> list[
         "recommendationReason": recommendation_reason or item.get("suitableFor", ""),
         "route": "CourseDetailPage",
         "routeParams": {"id": item["id"]},
-    } for item in courses]
+    } for item in _valid_resource_rows(courses, limit)]
 
 
-def _paper_cards(papers: list[dict]) -> list[dict]:
+def _paper_cards(
+    papers: list[dict],
+    limit: int | None = MAX_RECOMMENDATION_CARDS,
+) -> list[dict]:
     return [{
         "type": "PAPER",
         "id": item["id"],
@@ -118,7 +144,7 @@ def _paper_cards(papers: list[dict]) -> list[dict]:
         "knowledgePoints": item.get("knowledgePoints") or [],
         "route": "PaperDetailPage",
         "routeParams": {"id": item["id"]},
-    } for item in papers]
+    } for item in _valid_resource_rows(papers, limit)]
 
 
 def _fallback_answer(intent: IntentType, facts: dict[str, Any], clarification: str | None) -> str:
@@ -126,12 +152,14 @@ def _fallback_answer(intent: IntentType, facts: dict[str, Any], clarification: s
         return clarification
     if intent == IntentType.COURSE_RECOMMENDATION:
         recommendation = facts.get("recommendation") or {}
-        return recommendation.get("explanation") or "暂时没有找到匹配课程，请先完善学生档案。"
+        if not _valid_resource_rows(recommendation.get("courses") or [], 1):
+            return "暂时没有找到可打开的匹配课程，可以调整年级、学科或学习目标后重试。"
+        return recommendation.get("explanation") or "已找到匹配课程，可从下方卡片进入课程详情。"
     if intent == IntentType.COURSE_SEARCH:
-        count = len(facts.get("courses") or [])
+        count = len(_valid_resource_rows(facts.get("courses") or []))
         return f"已根据条件找到 {count} 门课程。" if count else "暂时没有找到符合条件的课程，可以调整年级或学科后重试。"
     if intent == IntentType.PAPER_SEARCH:
-        count = len(facts.get("papers") or [])
+        count = len(_valid_resource_rows(facts.get("papers") or []))
         return f"已找到 {count} 份匹配试卷，可从卡片进入详情或开始练习。" if count else "暂时没有找到匹配试卷，可以放宽难度或知识点条件。"
     if intent == IntentType.STUDY_PLAN_GENERATION:
         plan = facts.get("studyPlan") or {}
@@ -248,10 +276,7 @@ class AIOrchestrator:
     def _cards_for_tool(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         if name == "course_recommend_tool":
             recommendation = result.get("recommendation") or {}
-            return [
-                *_course_cards(recommendation.get("courses") or [], recommendation.get("explanation", "")),
-                *_paper_cards(recommendation.get("papers") or []),
-            ]
+            return _course_cards(recommendation.get("courses") or [], recommendation.get("explanation", ""))
         if name == "course_search_tool":
             return _course_cards(result.get("courses") or [])
         if name == "paper_search_tool":
@@ -495,7 +520,6 @@ class AIOrchestrator:
             facts.update(recommendation)
             facts["recommendation"] = recommendation
             cards.extend(_course_cards(recommendation.get("courses") or [], recommendation.get("explanation", "")))
-            cards.extend(_paper_cards(recommendation.get("papers") or []))
         elif intent.intent == IntentType.COURSE_SEARCH:
             result = await call("course_search_tool", {
                 key: entities[key]
@@ -551,7 +575,10 @@ class AIOrchestrator:
                               "routeParams": {"id": order["id"]}})
         elif intent.intent == IntentType.MY_COURSES:
             facts["courses"] = await my_courses(self.db, self.user, registry.context.student.id if registry.context else None)
-            cards.extend(_course_cards([{**item, "id": item["courseId"]} for item in facts["courses"]]))
+            cards.extend(_course_cards(
+                [{**item, "id": item["courseId"]} for item in facts["courses"]],
+                limit=None,
+            ))
         elif intent.intent == IntentType.MY_ORDERS:
             facts.update(await call("order_tool", {"action": "list", "orderStatus": entities.get("orderStatus")}))
         return calls, facts, cards, sources
@@ -772,12 +799,29 @@ class AIOrchestrator:
                     IntentType.MY_COURSES,
                     IntentType.MY_ORDERS,
                 }
-                if not tool_calls and intent.intent in required_tool_intents:
+                successful_tool_names = {
+                    str(call.get("name") or "")
+                    for call in tool_calls
+                    if call.get("success") is not False
+                }
+                required_resource_tool = RESOURCE_TOOL_BY_INTENT.get(intent.intent)
+                needs_deterministic_execution = (
+                    (not tool_calls and intent.intent in required_tool_intents)
+                    or (
+                        required_resource_tool is not None
+                        and required_resource_tool not in successful_tool_names
+                    )
+                )
+                if needs_deterministic_execution:
                     async with self.db.begin_nested():
-                        tool_calls, tool_facts, cards, sources = await self._execute(
+                        fallback_calls, fallback_facts, fallback_cards, fallback_sources = await self._execute(
                             registry, session, intent, message
                         )
-                    agent_fallback_used = self.provider.provider.name == "mock"
+                    tool_calls.extend(fallback_calls)
+                    tool_facts.update(fallback_facts)
+                    cards.extend(fallback_cards)
+                    sources.extend(fallback_sources)
+                    agent_fallback_used = True
                 facts.update(tool_facts)
             except Exception as exc:
                 agent_fallback_used = True
@@ -848,32 +892,42 @@ class AIOrchestrator:
 
     async def _complete(self, prepared: PreparedChat, message: str) -> dict:
         started = perf_counter()
-        try:
-            result = await self.provider.complete(
-                self._messages(prepared, message),
-                fallback_content=prepared.fallback_answer,
-                temperature=0.6,
-                max_tokens=2200,
-            )
-            answer = result.content or prepared.fallback_answer
-            model = result.model
-            fallback_used = result.fallback_used or bool(prepared.facts.get("agentFallbackUsed"))
+        force_resource_fallback = prepared.intent.intent in RESOURCE_TOOL_BY_INTENT and not prepared.cards
+        if force_resource_fallback:
+            answer = prepared.fallback_answer
+            model = "deterministic-resource-fallback"
+            fallback_used = True
             metadata: dict[str, Any] = {
                 "model": model,
-                "usage": result.usage,
-                "latencyMs": result.latency_ms,
-                "fallbackUsed": fallback_used,
+                "fallbackUsed": True,
             }
-        except ProviderError as exc:
-            answer = prepared.fallback_answer
-            model = "deterministic-fallback"
-            fallback_used = True
-            metadata = {"model": model, "fallbackUsed": True, "errorCode": exc.code}
-            logger.warning(
-                "AI final fallback request_id=%s error_code=%s",
-                prepared.request.request_id,
-                exc.code,
-            )
+        else:
+            try:
+                result = await self.provider.complete(
+                    self._messages(prepared, message),
+                    fallback_content=prepared.fallback_answer,
+                    temperature=0.6,
+                    max_tokens=2200,
+                )
+                answer = result.content or prepared.fallback_answer
+                model = result.model
+                fallback_used = result.fallback_used or bool(prepared.facts.get("agentFallbackUsed"))
+                metadata = {
+                    "model": model,
+                    "usage": result.usage,
+                    "latencyMs": result.latency_ms,
+                    "fallbackUsed": fallback_used,
+                }
+            except ProviderError as exc:
+                answer = prepared.fallback_answer
+                model = "deterministic-fallback"
+                fallback_used = True
+                metadata = {"model": model, "fallbackUsed": True, "errorCode": exc.code}
+                logger.warning(
+                    "AI final fallback request_id=%s error_code=%s",
+                    prepared.request.request_id,
+                    exc.code,
+                )
         logger.info(
             "AI stage request_id=%s stage=final latency_ms=%s fallback=%s",
             prepared.request.request_id,
@@ -984,37 +1038,44 @@ class AIOrchestrator:
 
         chunks: list[str] = []
         started = perf_counter()
-        try:
-            async for delta in self._stream_provider_with_heartbeat(
-                self._messages(prepared, message), prepared.fallback_answer
-            ):
-                if delta is None:
-                    yield "status", {"stage": "generating", "message": "正在组织个性化回答"}
-                    continue
-                chunks.append(delta)
-                yield "delta", {"content": delta}
-            model = self.provider.provider.model
-            fallback_used = (
-                self.provider.provider.name == "mock"
-                or not self.provider.configured
-                or bool(prepared.facts.get("agentFallbackUsed"))
-            )
-        except ProviderError as exc:
-            if chunks:
-                prepared.request.status = "failed"
-                prepared.request.error_code = exc.code
-                await self.db.commit()
-                yield "error", {"code": exc.code, "message": str(exc), "requestId": prepared.request.request_id}
-                return
+        force_resource_fallback = prepared.intent.intent in RESOURCE_TOOL_BY_INTENT and not prepared.cards
+        if force_resource_fallback:
             chunks.append(prepared.fallback_answer)
             yield "delta", {"content": prepared.fallback_answer}
-            model = "deterministic-fallback"
+            model = "deterministic-resource-fallback"
             fallback_used = True
-            logger.warning(
-                "AI final stream fallback request_id=%s error_code=%s",
-                prepared.request.request_id,
-                exc.code,
-            )
+        else:
+            try:
+                async for delta in self._stream_provider_with_heartbeat(
+                    self._messages(prepared, message), prepared.fallback_answer
+                ):
+                    if delta is None:
+                        yield "status", {"stage": "generating", "message": "正在组织个性化回答"}
+                        continue
+                    chunks.append(delta)
+                    yield "delta", {"content": delta}
+                model = self.provider.provider.model
+                fallback_used = (
+                    self.provider.provider.name == "mock"
+                    or not self.provider.configured
+                    or bool(prepared.facts.get("agentFallbackUsed"))
+                )
+            except ProviderError as exc:
+                if chunks:
+                    prepared.request.status = "failed"
+                    prepared.request.error_code = exc.code
+                    await self.db.commit()
+                    yield "error", {"code": exc.code, "message": str(exc), "requestId": prepared.request.request_id}
+                    return
+                chunks.append(prepared.fallback_answer)
+                yield "delta", {"content": prepared.fallback_answer}
+                model = "deterministic-fallback"
+                fallback_used = True
+                logger.warning(
+                    "AI final stream fallback request_id=%s error_code=%s",
+                    prepared.request.request_id,
+                    exc.code,
+                )
         logger.info(
             "AI stage request_id=%s stage=final_stream latency_ms=%s fallback=%s",
             prepared.request.request_id,

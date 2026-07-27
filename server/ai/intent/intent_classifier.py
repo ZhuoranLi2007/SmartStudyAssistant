@@ -20,6 +20,23 @@ INTENT_KEYWORDS: dict[IntentType, tuple[str, ...]] = {
     IntentType.KNOWLEDGE_QA: ("怎么学", "是什么", "为什么", "知识点", "解题方法"),
 }
 
+RESOURCE_INTENT_PATTERNS: dict[IntentType, tuple[str, ...]] = {
+    IntentType.COURSE_RECOMMENDATION: (
+        r"(?:推荐|介绍|选)(?:给我|一下|一个|一门|一些|几门)?[^，。！？\n]{0,8}(?:课程|课|班)",
+        r"(?:课程|课|班)[^，。！？\n]{0,8}(?:推荐|怎么选|选什么)",
+    ),
+    IntentType.PAPER_SEARCH: (
+        r"(?:推荐|找|来)(?:给我|一下|一个|一道|一套|一份|一组|一些|几道|几套|几份|几组)?"
+        r"[^，。！？\n]{0,8}(?:习题|练习题|练习|题目|试卷|卷子|专项练习|应用题)",
+    ),
+}
+
+EXPLICIT_RESOURCE_INTENTS = {
+    IntentType.COURSE_RECOMMENDATION,
+    IntentType.COURSE_SEARCH,
+    IntentType.PAPER_SEARCH,
+}
+
 WEAKNESS_MARKERS = ("比较弱", "较弱", "薄弱", "不擅长", "不会", "总出错", "容易错", "掌握不好", "有困难")
 
 REQUIRED_FIELDS: dict[IntentType, tuple[str, ...]] = {
@@ -93,6 +110,8 @@ def classify_by_rules(message: str, context: dict[str, Any] | None = None) -> In
     entities = extract_entities(message, context)
     message_weak_points = [point for point in (entities.get("weakPoints") or []) if point in message]
     scores = {intent: sum(1 for word in words if word in message) for intent, words in INTENT_KEYWORDS.items()}
+    for resource_intent, patterns in RESOURCE_INTENT_PATTERNS.items():
+        scores[resource_intent] += sum(2 for pattern in patterns if re.search(pattern, message))
     intent, hits = max(scores.items(), key=lambda item: item[1], default=(IntentType.GENERAL_CHAT, 0))
     # 单纯陈述“某知识点比较弱”属于学情反馈；只有没有更明确的推荐、试卷等动作时才接管意图。
     if hits == 0 and message_weak_points and any(marker in message for marker in WEAKNESS_MARKERS):
@@ -150,6 +169,10 @@ class IntentClassifier:
             confidence = float(parsed.get("confidence", rule.confidence))
         except (AttributeError, KeyError, ValueError, TypeError, json.JSONDecodeError):
             return rule
+        # 用户明确要求课程或练习资源时保留确定性意图，避免模型把可执行推荐降成纯文字聊天。
+        if rule.intent in EXPLICIT_RESOURCE_INTENTS and rule.confidence >= 0.82:
+            intent = rule.intent
+            confidence = rule.confidence
         # 写操作属于安全边界：模型不能把普通咨询提升为创建订单，明确写入词仍以规则结果为准。
         if intent == IntentType.ORDER_CREATION and rule.intent != IntentType.ORDER_CREATION:
             intent = rule.intent
