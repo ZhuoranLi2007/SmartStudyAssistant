@@ -162,8 +162,9 @@ Get-Content server\sql\mysql_init.sql |
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r server\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r server\requirements.lock
 Copy-Item server\.env.example server\.env
+Copy-Item server\.env.development.example server\.env.development
 ```
 
 编辑被 Git 忽略的 `server/.env`：
@@ -179,12 +180,22 @@ SMARTSTUDY_DEEPSEEK_API_KEY=
 
 不要提交真实数据库密码、JWT Secret 或模型密钥。
 
+配置优先级为“系统环境变量 > `server/.env.<环境>` > `server/.env`”。默认加载开发环境；生产部署时复制 `server/.env.production.example` 为 `server/.env.production`，并在进程环境中设置：
+
+```powershell
+$env:SMARTSTUDY_ENVIRONMENT='production'
+```
+
+`requirements.txt` 保留可升级的版本范围，`requirements.lock` 固定当前验证环境的全部精确版本。后端日志同时输出到控制台和 `server/logs/smartstudy.log`，单文件 5 MB，最多保留 5 个备份。
+
 执行迁移并启动服务：
 
 ```powershell
 .\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+生产环境启动时不添加 `--reload`。当前项目不宣称已经配置多 worker、负载均衡或异步任务队列。
 
 检查服务：
 
@@ -496,10 +507,11 @@ $env:DEVECO_SDK_HOME='C:\Program Files\Huawei\DevEco Studio\sdk'
   -p buildMode=debug --no-daemon
 ```
 
-2026-07-27 验证结果：
+2026-07-27 后端验证结果：
 
-- AI 与分布式聚焦测试：`23 passed, 3 failed`。
-- 后端完整测试：`33 passed, 10 failed`。失败项主要来自 RAG 文档数量、旧学生档案回退值、学习报告统计口径等接口预期差异，以及部分旧测试仍重复创建注册时已自动生成的学生档案，触发唯一约束；本次没有将这些失败误记为通过。
+- 配置、接口、目录、计划与错题聚焦测试：`12 passed`。
+- AI 全链路聚焦测试：`36 passed`。
+- 后端完整测试：`61 passed`，另有 1 条 Python 3.13 `aifc` 兼容包弃用警告，不属于测试失败。
 - API 24 主 HAP 已完成编译，最低兼容 API 23；同一签名包已在 API 23、API 24 两台真机完成覆盖安装。仓库移除本机签名材料后，可继续构建未签名 HAP；真机安装需在本地 DevEco Studio 配置签名。
 - 双机已授予分布式权限并建立可信关系，但系统在线分布式设备列表仍为空，因此“前台静默刷新”尚未完成最终双真机验收。
 

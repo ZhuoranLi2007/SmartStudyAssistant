@@ -10,12 +10,9 @@ from fastapi.responses import JSONResponse
 from server.api import api_router
 from server.config import get_settings
 from server.database import SessionLocal, init_database
+from server.logging_config import configure_logging
 from server.services.schema_patch_service import ensure_schema_patches
 from server.services.seed_service import seed_catalog
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-logger = logging.getLogger("smartstudy")
-
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -27,6 +24,8 @@ async def lifespan(_app: FastAPI):
 
 
 settings = get_settings()
+configure_logging(settings)
+logger = logging.getLogger("smartstudy")
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(api_router)

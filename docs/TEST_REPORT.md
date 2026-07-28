@@ -1,4 +1,4 @@
-# 测试记录（2026-07-26）
+# 测试记录（2026-07-27）
 
 本文记录当前工作区的真实验证结果。测试通过、编译通过和真机通过是三种不同结论，不能相互替代。
 
@@ -9,17 +9,19 @@
 执行命令：
 
 ```powershell
-python -m pytest server/tests/test_speech_service.py server/tests/test_auth.py -q
+python -m pytest server/tests/test_runtime_configuration.py server/tests/test_api_flow.py server/tests/test_primary_catalog.py server/tests/test_study_plan.py server/tests/test_wrong_question_training.py -q
 ```
 
-最近结果：`4 passed`。
+最近结果：`12 passed`。
 
 聚焦覆盖：
 
-- 认证基础流程。
-- 语音文件校验。
-- 阻塞音频识别任务从异步接口线程中移出。
-- 识别服务错误的统一转换。
+- 开发/生产配置选择、覆盖优先级和日志轮转。
+- 注册自动建档后的课程推荐与账号隔离。
+- 15 门课程和 15 套试卷的演示目录幂等性。
+- 学习计划与错题复测闭环。
+
+AI 全链路另行执行 `python -m pytest server/tests/test_ai_full_stack.py -q`，结果为 `36 passed`。
 
 ### 完整测试套件
 
@@ -29,18 +31,9 @@ python -m pytest server/tests/test_speech_service.py server/tests/test_auth.py -
 python -m pytest -q
 ```
 
-最近结果：`16 passed, 10 failed`。
+最近结果：`61 passed`，另有 1 条 `speech_recognition` 在 Python 3.13 下使用 `standard-aifc` 的弃用警告。
 
-当前不能写成“全部测试通过”。通过项覆盖了认证基础能力、语音服务、部分 AI 工具、课程试卷与学习流程；10 个失败主要属于测试预期与当前业务契约不同步：
-
-- 注册接口现在会自动创建学生档案，旧测试仍手动创建同一档案，触发唯一约束。
-- 家长角色的 RAG 重建测试与当前权限判断不一致。
-- 无效学生档案 ID 的首页降级测试仍期望返回 `0`，当前会回退到账号自动创建的真实档案。
-- 仓库存在订单相关代码，但订单路由没有接入当前正式 API 聚合，相关测试返回 404。
-- 主目录的旧数据保留顺序、学生跨年级/学科修改等测试仍使用旧业务预期。
-- 学习计划、家庭隔离和错题复测中的多个失败同样源于测试辅助逻辑重复创建注册时已经自动生成的档案。
-
-这些失败已如实保留，不能通过修改文档、跳过测试或连接开发 MySQL 来掩盖。后续应先统一当前产品契约，再逐项修正测试或实现。
+旧测试已同步到当前产品契约：注册自动创建默认档案、统一账号、跨账号隔离、固定数学演示目录和无效档案 ID 回退。没有为了测试通过修改生产接口或数据库结构。
 
 ## 2. 测试隔离与数据库安全
 
@@ -105,7 +98,7 @@ AI 七天学习计划已经改为根据成绩层次、薄弱点和每周学习�
 
 ## 7. 结论
 
-- **已确认**：聚焦后端测试通过、Python 编译通过、HarmonyOS API 24 HAP 构建通过。
-- **已知问题**：完整 pytest 当前为 16 通过、10 失败，失败原因已分类记录。
+- **已确认**：完整后端测试 `61 passed`、Python 编译通过、HarmonyOS API 24 HAP 构建通过。
+- **已知警告**：Python 3.13 下 `standard-aifc` 兼容包产生 1 条弃用警告，不影响测试结果。
 - **未完成**：签名安装、真机语音和双真机分布式运行验收。
 - **材料口径**：答辩中应表述为“分布式代码与构建已完成，受实验设备限制尚未完成双真机效果演示”。

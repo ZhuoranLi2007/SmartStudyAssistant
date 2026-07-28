@@ -453,7 +453,9 @@ async def test_health_rag_and_structured_ai_response(client):
 
     rebuild = await client.post("/api/ai/rag/rebuild", headers=auth)
     assert rebuild.status_code == 200, rebuild.text
-    assert rebuild.json()["data"]["documents"] >= 38
+    courses = (await client.get("/api/courses", headers=auth)).json()["data"]
+    papers = (await client.get("/api/papers", headers=auth)).json()["data"]
+    assert rebuild.json()["data"]["documents"] >= len(courses) + len(papers)
 
     response = await client.post("/api/ai/chat", headers=auth, json={
         "studentProfileId": student["id"],
@@ -615,8 +617,8 @@ async def test_stale_student_profile_id_returns_guidance_instead_of_404(client):
 
     home = await client.get("/api/home", headers=auth, params={"student_profile_id": 999999})
     assert home.status_code == 200, home.text
-    assert home.json()["data"]["studentProfileId"] == 0
-    assert home.json()["data"]["overview"]["studentBound"] is False
+    assert home.json()["data"]["studentProfileId"] == parent["studentProfileId"]
+    assert home.json()["data"]["overview"]["studentBound"] is True
 
     chat = await client.post("/api/ai/chat", headers=auth, json={
         "studentProfileId": 999999,

@@ -51,7 +51,7 @@ def test_student_schema_supports_all_primary_grades_and_core_subjects():
 
 
 @pytest.mark.asyncio
-async def test_catalog_is_complete_idempotent_and_preserves_legacy_order(client):
+async def test_demo_catalog_is_complete_idempotent_and_subject_scoped(client):
     parent = await register_parent(client)
     headers = auth_headers(parent["accessToken"])
 
@@ -61,37 +61,38 @@ async def test_catalog_is_complete_idempotent_and_preserves_legacy_order(client)
     assert papers_response.status_code == 200
     courses = courses_response.json()["data"]
     papers = papers_response.json()["data"]
-    assert len(courses) == 54
-    assert len(papers) == 108
-    assert courses[0]["name"] == "五年级数学基础巩固课"
-    assert courses[3]["name"] == "五年级英语基础巩固课"
-    assert courses[6]["name"] == "六年级数学基础巩固课"
-    assert courses[9]["name"] == "六年级英语基础巩固课"
+    assert len(courses) == 15
+    assert len(papers) == 15
+    assert courses[0]["name"] == "分数基础巩固课程"
+    assert courses[5]["name"] == "分数中等提升课程"
+    assert courses[10]["name"] == "分数拔高拓展课程"
+    assert all(row["grade"] == "五年级" and row["subject"] == "数学" for row in courses)
+    assert all(row["grade"] == "五年级" and row["subject"] == "数学" for row in papers)
 
     async with SessionLocal() as db:
         await seed_catalog(db)
 
-    assert len((await client.get("/api/courses", headers=headers)).json()["data"]) == 54
-    assert len((await client.get("/api/papers", headers=headers)).json()["data"]) == 108
+    assert len((await client.get("/api/courses", headers=headers)).json()["data"]) == 15
+    assert len((await client.get("/api/papers", headers=headers)).json()["data"]) == 15
 
-    for grade, subject in (("一年级", "语文"), ("三年级", "英语"), ("六年级", "数学")):
+    for grade, subject, expected in (("五年级", "数学", 15), ("三年级", "英语", 0), ("六年级", "数学", 0)):
         filtered_courses = (await client.get(
             "/api/courses", headers=headers, params={"grade": grade, "subject": subject}
         )).json()["data"]
         filtered_papers = (await client.get(
             "/api/papers", headers=headers, params={"grade": grade, "subject": subject}
         )).json()["data"]
-        assert len(filtered_courses) == 3
-        assert len(filtered_papers) == 6
+        assert len(filtered_courses) == expected
+        assert len(filtered_papers) == expected
         assert all(row["grade"] == grade and row["subject"] == subject for row in filtered_courses)
         assert all(row["grade"] == grade and row["subject"] == subject for row in filtered_papers)
 
 
 @pytest.mark.asyncio
-async def test_student_profile_can_move_across_grades_and_subjects(client):
+async def test_student_profile_can_update_across_grades_and_subjects(client):
     parent = await register_parent(client)
     headers = auth_headers(parent["accessToken"])
-    created = await client.post("/api/students", headers=headers, json={
+    created = await client.put(f"/api/students/{parent['studentProfileId']}", headers=headers, json={
         "name": "小雨", "grade": "一年级", "subject": "语文", "recent_score": 86,
         "weak_points": ["拼音", "看图写话"], "learning_goal": "培养习惯", "weekly_study_minutes": 90,
     })
@@ -113,7 +114,4 @@ async def test_student_profile_can_move_across_grades_and_subjects(client):
     })
     assert recommendation.status_code == 200, recommendation.text
     courses = recommendation.json()["data"]["recommendation"]["courses"]
-    assert courses
-    detail = await client.get(f"/api/courses/{courses[0]['id']}", headers=headers)
-    assert detail.json()["data"]["grade"] == "三年级"
-    assert detail.json()["data"]["subject"] == "英语"
+    assert courses == []

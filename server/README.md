@@ -16,7 +16,9 @@ server/
 ├── alembic/         0001/0002 增量迁移
 ├── knowledge/       RAG Markdown/JSON 资料
 ├── tests/           API、规则和 AI 全链路测试
-├── .env.example     无密钥配置模板
+├── .env*.example    通用、开发和生产配置模板
+├── requirements.lock 精确依赖版本快照
+├── logging_config.py 滚动文件日志配置
 └── main.py          FastAPI 入口
 ```
 
@@ -25,11 +27,14 @@ server/
 ```powershell
 cd D:\ruanjianshixun\MyApplication5
 python -m venv --system-site-packages .venv
-.\.venv\Scripts\python.exe -m pip install -r server\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r server\requirements.lock
 Copy-Item server\.env.example server\.env
+Copy-Item server\.env.development.example server\.env.development
 ```
 
 在 `server/.env` 中填写本机数据库账号、JWT Secret 和可选的 DeepSeek Key。不要把真实密码或 Key 写入 `.env.example` 或提交到 Git。
+
+配置优先级为系统环境变量、当前环境文件、通用 `.env`。默认使用 development；生产启动前复制生产样例并设置 `$env:SMARTSTUDY_ENVIRONMENT='production'`。生产命令不使用 `--reload`。日志保存到 `server/logs/smartstudy.log` 并自动轮转，该目录不会提交到 Git。
 
 ## 数据库与启动
 
@@ -52,7 +57,7 @@ Copy-Item server\.env.example server\.env
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-测试配置会在导入应用前强制覆盖为 SQLite + Mock Provider，不会清理 MySQL 开发数据，也不会调用真实 DeepSeek。最近一次完整结果为 17 项通过。
+测试配置会在导入应用前强制覆盖为 SQLite + Mock Provider，不会清理 MySQL 开发数据，也不会调用真实 DeepSeek。2026-07-27 最近一次完整结果为 `61 passed`。
 
 ## 安全约束
 

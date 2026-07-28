@@ -20,7 +20,7 @@ def headers(token):
 async def test_parent_student_recommendation_and_chat(client):
     parent = await register(client)
     auth = headers(parent["accessToken"])
-    student_response = await client.post("/api/students", headers=auth, json={
+    student_response = await client.put(f"/api/students/{parent['studentProfileId']}", headers=auth, json={
         "name": "小明", "grade": "六年级", "subject": "数学", "recent_score": 75,
         "weak_points": ["应用题", "百分数"], "learning_goal": "提高成绩", "weekly_study_minutes": 180,
     })
@@ -42,10 +42,10 @@ async def test_parent_student_recommendation_and_chat(client):
 
 
 @pytest.mark.asyncio
-async def test_family_isolation_and_student_binding(client):
+async def test_account_isolation_and_legacy_binding_compatibility(client):
     first_parent = await register(client)
     first_headers = headers(first_parent["accessToken"])
-    student_response = await client.post("/api/students", headers=first_headers, json={
+    student_response = await client.put(f"/api/students/{first_parent['studentProfileId']}", headers=first_headers, json={
         "name": "小华", "grade": "五年级", "subject": "英语", "recent_score": 88,
         "weak_points": ["阅读"], "learning_goal": "拓展学习", "weekly_study_minutes": 240,
     })
@@ -55,12 +55,8 @@ async def test_family_isolation_and_student_binding(client):
     forbidden = await client.get(f"/api/students/{student['id']}", headers=headers(second_parent["accessToken"]))
     assert forbidden.status_code == 403
 
-    student_user = await register(client, "student")
-    bound = await client.post("/api/families/bind-student", headers=headers(student_user["accessToken"]), json={
-        "bind_code": student["bindCode"],
+    compatibility = await client.post("/api/families/bind-student", headers=first_headers, json={
+        "bind_code": "LEGACY-NO-LONGER-REQUIRED",
     })
-    assert bound.status_code == 200, bound.text
-    rebound = await client.post("/api/families/bind-student", headers=headers(student_user["accessToken"]), json={
-        "bind_code": student["bindCode"],
-    })
-    assert rebound.status_code == 409
+    assert compatibility.status_code == 200, compatibility.text
+    assert compatibility.json()["data"] == {"studentProfileId": 0, "familyId": 0}

@@ -23,8 +23,8 @@ def auth(token: str) -> dict[str, str]:
 async def test_wrong_question_plan_retest_and_mastery(client):
     parent = await register(client, "parent")
     parent_headers = auth(parent["accessToken"])
-    created = await client.post("/api/students", headers=parent_headers, json={
-        "name": "错题训练学生", "grade": "六年级", "subject": "数学", "recent_score": 75,
+    created = await client.put(f"/api/students/{parent['studentProfileId']}", headers=parent_headers, json={
+        "name": "错题训练学生", "grade": "五年级", "subject": "数学", "recent_score": 75,
         "weak_points": ["分数"], "learning_goal": "查漏补缺", "weekly_study_minutes": 180,
     })
     assert created.status_code == 200, created.text
@@ -60,12 +60,7 @@ async def test_wrong_question_plan_retest_and_mastery(client):
     })
     assert duplicate.status_code == 409
 
-    student_user = await register(client, "student")
-    student_headers = auth(student_user["accessToken"])
-    bound = await client.post("/api/families/bind-student", headers=student_headers, json={
-        "bind_code": student["bindCode"],
-    })
-    assert bound.status_code == 200, bound.text
+    student_headers = parent_headers
 
     training = await client.get(
         f"/api/students/{student['id']}/wrong-questions/{wrong['id']}/training", headers=student_headers
